@@ -2,7 +2,6 @@ import csv
 import io
 import logging
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -131,23 +130,18 @@ def project_files() -> set[str]:
     return found
 
 
-def temp_entries() -> set[str]:
-    # Spooled uploads land at the top of the temp dir, so that level is enough.
-    return set(os.listdir(tempfile.gettempdir()))
-
-
-def test_upload_writes_no_files(client):
+def test_upload_writes_no_files(client, isolated_tmp):
     # Over 1 MB, the size at which Starlette would spool a multipart upload to disk.
     sample = SAMPLE.read_bytes()
     header, body = sample.split(b"\n", 1)
     big = header + b"\n" + body * 600
     assert 1024 * 1024 < len(big) < MAX_UPLOAD_BYTES
 
-    before_project, before_temp = project_files(), temp_entries()
+    before_project = project_files()
     resp = post_csv(client, big)
     assert resp.status_code == 200
     assert project_files() - before_project == set()
-    assert temp_entries() - before_temp == set()
+    assert list(isolated_tmp.iterdir()) == []
 
 
 def test_logs_hold_no_descriptions_or_amounts(client, caplog):
@@ -157,7 +151,8 @@ def test_logs_hold_no_descriptions_or_amounts(client, caplog):
     client.post("/api/report", json={"rows": resp.json()["rows"]})
     post_csv(client, b"date,amount\n2026-09-01,45000\n")  # an error path too
 
-    text = "\n".join(f"{r.getMessage()} {r.args}" for r in caplog.records)
+    # Formatted messages only: raw args hold the duration float, whose digits can look like amounts.
+    text = "\n".join(r.getMessage() for r in caplog.records)
     assert "POST /api/classify 200" in text and "rows=40" in text  # the logger did run
     for secret in ["GRAB*FOOD", "KOPI KENANGAN", "BUDI SANTOSO", "45000", "1000000"]:
         assert secret not in text

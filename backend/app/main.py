@@ -12,19 +12,23 @@ Run from the project root:
     .venv\\Scripts\\python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 """
 
-import csv
 import io
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
+from app.reports import report_csv, report_pdf, report_xlsx
 from app.schemas import CategoryTotal, ClassifyResponse, Health, ReportRequest, Row, Summary
 from classifier import CONFIDENCE_THRESHOLD, build_model, classify, clean_description, load_transactions
 
@@ -32,9 +36,15 @@ logger = logging.getLogger("app")
 
 CATEGORIES = ["food", "transport", "shopping", "bills", "transfer"]
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_REPORT_BYTES = 10 * 1024 * 1024
 ACCEPTED_TYPES = {"text/csv", "application/octet-stream"}
 SAMPLE_CSV = Path(__file__).resolve().parents[2] / "data" / "sample_transactions.csv"
 ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+REPORT_FORMATS = {
+    "csv": "text/csv",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pdf": "application/pdf",
+}
 
 
 def load_model():
@@ -86,19 +96,30 @@ async def log_requests(request: Request, call_next):
         logger.info("%s %s %d %.1fms%s", request.method, request.url.path, status, ms, extra)
 
 
+def _validation_errors(errors) -> list[dict]:
+    """Field locations and messages only: pydantic's `input` and `ctx` can echo row data."""
+    return [{"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")} for e in errors]
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": _validation_errors(exc.errors())})
+
+
 # ---- helpers ---------------------------------------------------------------
 
 
-async def read_body(request: Request) -> bytes:
-    """Read the request body into memory, refusing anything over MAX_UPLOAD_BYTES."""
+async def read_body(request: Request, limit: int = MAX_UPLOAD_BYTES, what: str = "File") -> bytes:
+    """Read the request body into memory, refusing anything over `limit` bytes."""
+    too_big = f"{what} is larger than {limit // (1024 * 1024)} MB."
     declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "File is larger than 5 MB.")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise HTTPException(413, too_big)
     chunks, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > MAX_UPLOAD_BYTES:
-            raise HTTPException(413, "File is larger than 5 MB.")
+        if size > limit:
+            raise HTTPException(413, too_big)
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -177,21 +198,6 @@ def summarize(rows: list[Row]) -> Summary:
     )
 
 
-def report_csv(rows: list[Row]) -> str:
-    """Summary block, a blank line, then the row table."""
-    buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\n")
-    writer.writerow(["category", "count", "total_amount", "share"])
-    for c in summarize(rows).by_category:
-        writer.writerow([c.category, c.count, c.total_amount, c.share])
-    writer.writerow([])
-    fields = list(Row.model_fields)
-    writer.writerow(fields)
-    for r in rows:
-        writer.writerow(["" if v is None else v for v in r.model_dump().values()])
-    return buf.getvalue()
-
-
 # ---- endpoints -------------------------------------------------------------
 
 
@@ -236,10 +242,33 @@ async def classify_upload(
 
 
 @app.post("/api/report")
-def report(body: ReportRequest, request: Request) -> Response:
-    request.state.row_count = len(body.rows)
+async def report(
+    request: Request,
+    format: Literal["csv", "xlsx", "pdf"] = Query("csv"),
+) -> Response:
+    """Build a report from the (possibly corrected) rows. The JSON body is read and validated by hand
+    so its size can be capped before parsing and validation errors never echo row data."""
+    raw = await read_body(request, MAX_REPORT_BYTES, "Request")
+    try:
+        body = ReportRequest.model_validate_json(raw)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [{**e, "loc": ("body", *e["loc"])} for e in exc.errors(include_url=False, include_input=False)]
+        ) from None
+    del raw
+
+    rows = body.rows
+    request.state.row_count = len(rows)
+    summary = summarize(rows)
+    try:
+        builder = {"csv": report_csv, "xlsx": report_xlsx, "pdf": report_pdf}[format]
+        content = builder(rows, summary)
+    except Exception as exc:  # log the type only: messages can quote row data
+        logger.error("report failed: %s", type(exc).__name__)
+        raise HTTPException(500, "Could not build the report.") from None
+
     return Response(
-        content=report_csv(body.rows),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="spending-report.csv"'},
+        content=content,
+        media_type=REPORT_FORMATS[format],
+        headers={"Content-Disposition": f'attachment; filename="spending-report.{format}"'},
     )

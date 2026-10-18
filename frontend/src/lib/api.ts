@@ -10,6 +10,7 @@ async function errorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
     if (typeof body?.detail === "string") return body.detail;
+    if (res.status === 422) return "The report request was not valid. Check that every row has a category.";
   } catch {
     // not JSON; fall through
   }
@@ -36,8 +37,15 @@ export async function classify(file: File): Promise<ClassifyResponse> {
   return res.json();
 }
 
-export async function downloadReport(rows: Row[]): Promise<void> {
-  const res = await send("/api/report", {
+export const REPORT_FORMATS = [
+  { value: "csv", label: "CSV" },
+  { value: "xlsx", label: "Excel" },
+  { value: "pdf", label: "PDF" },
+] as const;
+export type ReportFormat = (typeof REPORT_FORMATS)[number]["value"];
+
+export async function downloadReport(rows: Row[], format: ReportFormat = "csv"): Promise<void> {
+  const res = await send(`/api/report?format=${format}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rows }),
@@ -45,7 +53,7 @@ export async function downloadReport(rows: Row[]): Promise<void> {
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
   a.href = url;
-  a.download = "spending-report.csv";
+  a.download = `spending-report.${format}`;
   document.body.appendChild(a);
   a.click();
   a.remove();

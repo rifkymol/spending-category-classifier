@@ -1,0 +1,16 @@
+# Build context is the repo root. Keep real data, models, secrets and local
+# build output out of every image.
+.git
+.venv
+**/__pycache__
+**/node_modules
+frontend/.next
+frontend/tsconfig.tsbuildinfo
+data/
+!data/sample_transactions.csv
+models/
+*.joblib
+*.pkl
+.claude/
+**/*.env*.local
+**/.env

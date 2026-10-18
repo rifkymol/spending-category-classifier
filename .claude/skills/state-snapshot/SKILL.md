@@ -23,7 +23,7 @@ description: What is true about the spending-category-classifier project right n
 - **Classifier:** unchanged (5 categories, rules first, then TF-IDF `char_wb` 2-5 + LogisticRegression, review threshold 0.6).
 - **Layout:** `backend/` (FastAPI app plus the classifier package; the planned `src/pipeline.py` work moves here), `frontend/` (Next.js), `docker-compose.yml` at the root.
 - **Privacy rules:** in-memory processing only, no database, no uploads on disk; logs hold only counts and timings; no outbound calls (no analytics, no external fonts/CDNs, `NEXT_TELEMETRY_DISABLED=1`, bind to localhost); email off by default and only via the user's own SMTP with a warning; the shipped model is trained only on synthetic data, personal models and labels stay local and gitignored; automated tests enforce these rules.
-- **Phases 1–3 are done and verified (2026-10-18):** the core classifier, the FastAPI API and the Next.js UI. Phase 4 (reports) is next.
+- **Phases 1–5 are done and verified (2026-10-18):** the core classifier, the FastAPI API, the Next.js UI, the CSV/Excel/PDF reports and Docker self-hosting. `docker compose up --build` serves the app on 127.0.0.1:3000 with hardened read-only containers. Phase 6 (BCA import) is next, and it needs a real BCA export from the user.
 
 ## Files in the repo
 
@@ -51,14 +51,16 @@ description: What is true about the spending-category-classifier project right n
 
 - The model has been tested only on 40 synthetic rows. It needs real labeled data (Phase 7).
 - There are no rules for `transfer`; the model handles those rows.
-- The report CSV does not yet neutralize spreadsheet formula injection (`= + - @` prefixes). Planned for Phase 4.
-- `/api/report` accepts any `predicted` string and has no size cap.
+- The report API (Phase 4) is `POST /api/report?format=csv|xlsx|pdf`, built in `backend/app/reports.py`. It neutralizes formula injection, accepts only the 5 categories, and is capped at 10 MB / 50,000 rows. The suite has 45 tests.
 - With the sample, all 9 flagged rows are transfers, because there are no transfer rules. Consider adding them in Phase 7.
 - The real "Download report" click (which saves a file) has not been tested in a browser.
 
 ## Environment
 
-- Git repo on `main`, remote `origin` = github.com/rifkymol/spending-category-classifier. Initial commit 6d50412 (16 files, no sensitive files) is pushed. Phase 2 commit 576c6d9 is pushed. Not committed yet: `frontend/`, `.gitignore`, README, PLAN, and the PM's `auditor.md`, `CLAUDE.md` and `.claude/skills/` edits.
+- Git repo on `main`, remote `origin` = github.com/rifkymol/spending-category-classifier. Initial commit 6d50412 (16 files, no sensitive files) is pushed. Phase 3 commit 53f97e0 is pushed. Phases 4 and 5 are NOT committed yet.
+- Docker Desktop is running. The images `spending-classifier-api:local` and `spending-classifier-web:local` are built locally.
+- Port 3000 is also used by an unrelated dev server from the user's other project (fe-sales-evaluation) on 0.0.0.0:3000.
+- Follow-up: pin the base images and Python package versions (`backend/requirements-runtime.txt` uses `>=` ranges).
 - `.venv` exists (Python 3.13.3) with `backend/requirements.txt` installed, including fastapi, uvicorn and httpx.
 - System Python 3.13.3 also has pandas 2.2.3 and scikit-learn 1.8.0.
 - Node.js v22.15.0 and Docker 29.1.5 are installed.

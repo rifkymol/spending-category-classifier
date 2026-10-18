@@ -42,20 +42,28 @@ Predict a spending category for each bank transaction from its text description 
 
 **Phase 3 note (web UI):** `frontend/` is a client-only Next.js app that calls the API at `NEXT_PUBLIC_API_URL` (default `http://127.0.0.1:8000`). Privacy: no browser storage, cookies or URL params hold data; no external fonts, CDNs or analytics; telemetry is off in every npm script; dev and start bind to `127.0.0.1:3000`; `poweredByHeader` is off. Editing a row's category clears its review flag and recomputes the summary in the browser (`src/lib/summary.ts`). Dependencies are pinned to exact versions.
 
+**Phase 4 note (reports):** `backend/app/reports.py` builds the CSV, Excel (openpyxl 3.1.5) and PDF (reportlab 5.0.1) reports in memory from `list[Row]` plus the summary; `report_csv` moved there from `main.py`. `POST /api/report?format=csv|xlsx|pdf` reads the JSON body via `read_body` (10 MB cap), validates it with `ReportRequest.model_validate_json` (`predicted` restricted to the 5 categories via `ReportRow`, max 50,000 rows), and returns 422 errors with `loc`/`msg`/`type` only, never the submitted input. Text cells starting with `= + - @`, tab or CR get a `'` prefix in CSV and Excel. PDF chart colors mirror `frontend/src/lib/format.ts` (a test checks they match). The UI has a format select next to "Download report". Tests: `backend/tests/test_reports.py`.
+
+**Phase 5 note (self-hosting):** `docker compose up --build` from the repo root builds two images with the repo root as build context. `backend/Dockerfile` (`python:3.13-slim`, non-root, runtime deps only from `backend/requirements-runtime.txt`, copies `backend/` and `data/sample_transactions.csv` so `SAMPLE_CSV` resolves, healthcheck on `/api/health`). `frontend/Dockerfile` (multi-stage `node:22-alpine`: `npm ci` → `npm run build` with build arg `NEXT_PUBLIC_API_URL`, default `http://127.0.0.1:8000` → non-root runner on Next `output: "standalone"`, `node server.js`). `docker-compose.yml` publishes `127.0.0.1:8000` and `127.0.0.1:3000` only; both services are `read_only` with RAM `tmpfs` (`/tmp`, plus `/app/.next/cache` for web), `cap_drop: [ALL]`, `no-new-privileges`, `restart: "no"`, no data volumes; web waits for api `service_healthy`. An optional read-only `./models:/models` mount with `MODEL_PATH` is commented out. `.dockerignore` keeps `.git`, venvs, `node_modules`, build output, `data/` (except the sample), models, `.claude/` and env files out of the images. `backend/requirements.txt` is now `-r requirements-runtime.txt` plus `pytest` and `httpx`. CORS origins are still hard-coded in `main.py`; a different UI address needs a code change (documented in README). Images have not been built yet.
+
 ## Files
 
 | Path | Purpose | State |
 |---|---|---|
 | `README.md` | Idea overview and approach | Exists |
 | `requirements.txt` | Points to `backend/requirements.txt` | Exists |
-| `backend/requirements.txt` | `pandas`, `scikit-learn`, `joblib`, `pytest`, `fastapi`, `uvicorn`, `httpx` | Exists |
+| `backend/requirements-runtime.txt` | Runtime deps: `pandas`, `scikit-learn`, `joblib`, `fastapi`, `uvicorn`, `openpyxl==3.1.5`, `reportlab==5.0.1` (used by the Docker image) | Exists |
+| `backend/requirements.txt` | `-r requirements-runtime.txt` plus `pytest`, `httpx` | Exists |
+| `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `.dockerignore` | Phase 5 self-hosting: two images, loopback-only ports, read-only hardened containers | Exists, config-parsed; images not built yet |
 | `.gitignore` | Keeps statements, predictions, and models (`models/`, `*.joblib`) out of Git | Exists |
 | `data/sample_transactions.csv` | 40 synthetic rows for testing, not real data | Exists |
 | `backend/classifier/pipeline.py` | Cleaning, word-boundary rules, model, loader, `classify()` (pure, in-memory) | Exists, CLI-checked |
 | `backend/classify.py` | CLI: `evaluate`, `train`, `predict` | Exists, runs on the sample |
 | `backend/tests/test_pipeline.py` | pytest tests (cleaning, rules, classify, loader, end-to-end) | Exists, passing |
-| `backend/app/main.py` | Phase 2 FastAPI app: `GET /api/health`, `POST /api/classify` (raw CSV body, in memory, 5 MB cap), `POST /api/report` (CSV download), CORS for localhost:3000, counts-only logging | Exists, builder-tested |
-| `backend/app/schemas.py` | Pydantic request and response models | Exists |
+| `backend/app/main.py` | Phase 2 FastAPI app: `GET /api/health`, `POST /api/classify` (raw CSV body, in memory, 5 MB cap), `POST /api/report?format=csv|xlsx|pdf` (report download, 10 MB / 50,000-row cap), CORS for localhost:3000, counts-only logging | Exists, builder-tested |
+| `backend/app/schemas.py` | Pydantic request and response models (`ReportRow` limits `predicted` to the 5 categories) | Exists |
+| `backend/app/reports.py` | Phase 4 report builders: CSV, Excel (Summary + pie chart, Transactions), PDF (A4, pie, tables); formula-injection guard | Exists, builder-tested |
+| `backend/tests/test_reports.py` | Report format, injection, validation and privacy tests | Exists, passing |
 | `backend/tests/test_api.py` | API tests plus privacy tests (no files written during an upload, no descriptions or amounts in logs) | Exists, passing |
 | `frontend/` | Phase 3 Next.js 16 UI (App Router, TypeScript, Tailwind 4, Recharts 3): upload with drag-and-drop and checks, summary cards, donut chart, per-category totals, editable transactions table with a review filter, report download. Client-only; data lives in React state | Exists, builder-tested |
 | `frontend/src/lib/summary.ts` | Client-side summary recompute, mirrors `summarize()` in `backend/app/main.py` | Exists |

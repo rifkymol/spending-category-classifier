@@ -71,16 +71,42 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 
 ## Phase 4: reports
 
-- [ ] [builder] CSV/Excel download of categorized transactions and totals.
-- [ ] [builder] PDF summary report.
-- [ ] [auditor] Verify both downloads.
+- [x] [builder] CSV/Excel download of categorized transactions and totals.
+- [x] [builder] PDF summary report.
+- [x] [auditor] Verify both downloads.
+
+*Phase 4 verified 2026-10-18 (auditor 11/12 plus a fix; PM reran the suite 5x and checked the PDF):*
+- *`POST /api/report?format=csv|xlsx|pdf` builds reports in memory with `backend/app/reports.py` (openpyxl 3.1.5, reportlab 5.0.1).*
+- *Excel: Summary sheet with a native pie chart, plus a Transactions sheet.*
+- *PDF: pie chart, totals and all rows, using only Helvetica/Helvetica-Bold.*
+- *Formula injection is neutralized with a `'` prefix; numbers stay numeric.*
+- *Report rows only accept the 5 categories. Limits: 10 MB (413) and 50,000 rows (422). Validation errors return no input data.*
+- *No new files and no row data in logs.*
+- *The UI has a CSV / Excel / PDF picker.*
+- *Failure and fix: two privacy tests were flaky.*
+  - *The log test matched amount digits inside a raw duration float.*
+  - *The temp-dir test saw other programs' `.tmp` files.*
+  - *Fixed by checking only formatted log messages and isolating `tempfile.tempdir` per test. The PDF font is now set explicitly, with a test for it.*
+- *Suite: 45 passed, 10x by the builder and 5x by the PM.*
+- *Not tested: the real browser download click (it saves a file).*
 
 ## Phase 5: self-hosting
 
-- [ ] [builder] Dockerfiles for backend and frontend plus `docker-compose.yml` (bound to localhost).
-- [ ] [builder] README "run it locally" guide (`docker compose up`, open http://localhost:3000) and a privacy section.
-- [ ] [auditor] Verify `docker compose up` serves the app on localhost.
-- [ ] [PM] Verify and update `state-snapshot`.
+- [x] [builder] Dockerfiles for backend and frontend plus `docker-compose.yml` (bound to localhost). *(2026-10-18, PM file review. Ports are published as `127.0.0.1:8000` / `127.0.0.1:3000`. Containers are `read_only` with tmpfs `/tmp`, `cap_drop: ALL`, no-new-privileges, `restart: "no"`, no data volumes, and non-root users. `.dockerignore` keeps `data/` except the sample, plus `.venv`, `.claude` and models, out of the images. Not built yet.)*
+- [x] [builder] README "run it locally" guide (`docker compose up`, open http://localhost:3000) and a privacy section. *(2026-10-18, written; the builder reports `docker compose config` OK, a standalone build, lint clean and 45 tests passing.)*
+- [x] [auditor] Verify `docker compose up` serves the app on localhost.
+- [x] [PM] Verify and update `state-snapshot`.
+
+*Phase 5 verified 2026-10-18 (auditor, all checks; user approved the image pulls and the run):*
+- *`docker compose build` OK. Image sizes: api 163 MB content, web 85 MB content.*
+- *The images contain only `sample_transactions.csv`, with no raw data, joblib or .env.*
+- *Docker publishes only 127.0.0.1:8000 and 127.0.0.1:3000.*
+- *The app works end to end: health, classify with the CORS header, PDF report. The web bundle points at 127.0.0.1:8000.*
+- *Both containers: read-only root filesystem (writes to /app fail, /tmp works), CapDrop ALL, no-new-privileges, non-root (`app` uid 10001 and `node` uid 1000), restart policy no.*
+- *Telemetry is off in the web container (NEXT_TELEMETRY_DISABLED=1). The API logs hold no row data.*
+- *`docker compose down` is clean, the images are kept, and the project tree is unchanged.*
+- *Note: an unrelated dev server from the user's other project (fe-sales-evaluation, node PID 36740) listens on 0.0.0.0:3000. It's not this app, but it shares port 3000.*
+- *Follow-up: pin the base images and Python package versions before publishing (reproducibility; scikit-learn matters for loading personal models).*
 
 ## Phase 6: BCA import
 

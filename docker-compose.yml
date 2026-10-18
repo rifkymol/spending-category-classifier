@@ -1,0 +1,53 @@
+# Self-host: `docker compose up --build`, then open http://127.0.0.1:3000.
+# Both ports are published on the host's loopback only (127.0.0.1), so nothing
+# on your network can reach the app. Containers are read-only, keep nothing on
+# disk (no data volumes; /tmp is RAM-backed tmpfs) and never restart on their own.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: spending-classifier-api:local
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Optional: use your own model instead of the synthetic one.
+    # Train it with `python backend/classify.py train ...`, put the .joblib in
+    # ./models/ and uncomment both lines below. Mounted read-only.
+    # environment:
+    #   MODEL_PATH: /models/model.joblib
+    # volumes:
+    #   - ./models:/models:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Baked into the browser bundle. Must match the address you open the API
+        # on, and the page's origin must be in ALLOWED_ORIGINS in backend/app/main.py.
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+    image: spending-classifier-web:local
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+      # Next.js may write a runtime cache here; keep it in RAM.
+      - /app/.next/cache:uid=1000,gid=1000
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    restart: "no"

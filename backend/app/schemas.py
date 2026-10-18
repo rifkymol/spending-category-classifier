@@ -2,7 +2,10 @@
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+Category = Literal["food", "transport", "shopping", "bills", "transfer"]
+MAX_REPORT_ROWS = 50_000
 
 
 class Row(BaseModel):
@@ -35,8 +38,14 @@ class ClassifyResponse(BaseModel):
     summary: Summary
 
 
+class ReportRow(Row):
+    """A row sent back for a report: same shape as Row, but the category must be one of the five."""
+
+    predicted: Category
+
+
 class ReportRequest(BaseModel):
-    rows: list[Row]
+    rows: list[ReportRow] = Field(max_length=MAX_REPORT_ROWS)
 
 
 class Health(BaseModel):

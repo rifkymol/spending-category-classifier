@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import CategoryChart from "./CategoryChart";
 import TransactionsTable from "./TransactionsTable";
-import { downloadReport } from "@/lib/api";
+import { REPORT_FORMATS, downloadReport, type ReportFormat } from "@/lib/api";
 import { colorFor, formatIDR, formatPercent } from "@/lib/format";
 import { relabel, summarize } from "@/lib/summary";
 import type { Row } from "@/lib/types";
@@ -27,6 +27,7 @@ function Card({ label, value, tone = "default" }: { label: string; value: string
 export default function Results({ rows, fileName, onChange, onReset }: Props) {
   const summary = useMemo(() => summarize(rows), [rows]);
   const hasAmounts = summary.total_amount > 0;
+  const [format, setFormat] = useState<ReportFormat>("csv");
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +35,7 @@ export default function Results({ rows, fileName, onChange, onReset }: Props) {
     setDownloading(true);
     setError(null);
     try {
-      await downloadReport(rows);
+      await downloadReport(rows, format);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the report.");
     } finally {
@@ -48,15 +49,33 @@ export default function Results({ rows, fileName, onChange, onReset }: Props) {
         <p className="text-sm text-slate-600">
           Results for <span className="font-medium text-slate-900">{fileName}</span>
         </p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={download}
-            disabled={downloading}
-            className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-60"
-          >
-            {downloading ? "Preparing…" : "Download report"}
-          </button>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex">
+            <label htmlFor="report-format" className="sr-only">
+              Report format
+            </label>
+            <select
+              id="report-format"
+              value={format}
+              onChange={(e) => setFormat(e.target.value as ReportFormat)}
+              disabled={downloading}
+              className="rounded-l-lg border border-r-0 border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-60"
+            >
+              {REPORT_FORMATS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={download}
+              disabled={downloading}
+              className="rounded-r-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-60"
+            >
+              {downloading ? "Preparing…" : "Download report"}
+            </button>
+          </div>
           <button
             type="button"
             onClick={onReset}
