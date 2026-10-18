@@ -40,6 +40,8 @@ Predict a spending category for each bank transaction from its text description 
 5. **Review loop.** Add a simple way to confirm or fix flagged rows. Save corrections as new labels.
 6. **Polish.** Optional UI (Streamlit or CLI prompt), notes on the results.
 
+**Phase 3 note (web UI):** `frontend/` is a client-only Next.js app that calls the API at `NEXT_PUBLIC_API_URL` (default `http://127.0.0.1:8000`). Privacy: no browser storage, cookies or URL params hold data; no external fonts, CDNs or analytics; telemetry is off in every npm script; dev and start bind to `127.0.0.1:3000`; `poweredByHeader` is off. Editing a row's category clears its review flag and recomputes the summary in the browser (`src/lib/summary.ts`). Dependencies are pinned to exact versions.
+
 ## Files
 
 | Path | Purpose | State |
@@ -55,6 +57,8 @@ Predict a spending category for each bank transaction from its text description 
 | `backend/app/main.py` | Phase 2 FastAPI app: `GET /api/health`, `POST /api/classify` (raw CSV body, in memory, 5 MB cap), `POST /api/report` (CSV download), CORS for localhost:3000, counts-only logging | Exists, builder-tested |
 | `backend/app/schemas.py` | Pydantic request and response models | Exists |
 | `backend/tests/test_api.py` | API tests plus privacy tests (no files written during an upload, no descriptions or amounts in logs) | Exists, passing |
+| `frontend/` | Phase 3 Next.js 16 UI (App Router, TypeScript, Tailwind 4, Recharts 3): upload with drag-and-drop and checks, summary cards, donut chart, per-category totals, editable transactions table with a review filter, report download. Client-only; data lives in React state | Exists, builder-tested |
+| `frontend/src/lib/summary.ts` | Client-side summary recompute, mirrors `summarize()` in `backend/app/main.py` | Exists |
 | `PLAN.md` | This file | Exists |
 
 Not yet created: `data/raw/` (real statements), a virtual environment. `src/` was removed after its logic moved into `backend/`.

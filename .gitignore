@@ -6,3 +6,10 @@ __pycache__/
 .venv/
 models/
 *.joblib
+
+# Next.js frontend build output and local env
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo

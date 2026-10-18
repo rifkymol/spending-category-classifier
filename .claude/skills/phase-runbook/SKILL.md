@@ -54,11 +54,20 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 
 ## Phase 3: Next.js UI
 
-- [ ] [builder] Upload page.
-- [ ] [builder] Results page with a pie chart (Recharts), per-category totals and an editable review table for flagged rows.
-- [ ] [builder] Telemetry off (`NEXT_TELEMETRY_DISABLED=1`), no external fonts, CDNs or analytics.
-- [ ] [auditor] Verify the UI flow and that no outbound requests are made.
-- [ ] [PM] Verify and update `state-snapshot`.
+- [x] [builder] Upload page.
+- [x] [builder] Results page with a pie chart (Recharts), per-category totals and an editable review table for flagged rows.
+- [x] [builder] Telemetry off (`NEXT_TELEMETRY_DISABLED=1`), no external fonts, CDNs or analytics.
+- [x] [auditor] Verify the UI flow and that no outbound requests are made.
+- [x] [PM] Verify and update `state-snapshot`.
+
+*Phase 3 verified 2026-10-18 (auditor, 12/12 checks; PM browser walkthrough):*
+- *Versions: Next 16.4.2, React 19.3.1, Recharts 3.10.1, Tailwind 4.3.3, all pinned exactly.*
+- *Lint, build and tsc are clean. Telemetry is off in every Next script, and the app binds to 127.0.0.1.*
+- *No browser storage, and no data in URLs. The source and build contain no external assets or fetches.*
+- *Browser walkthrough on 127.0.0.1:3000: the sample upload gives 40 rows, Rp 6.731.990 and 9 to review, with a correct donut chart. Changing a flagged row to bills moves the review count to 8 and recomputes the totals. All network requests went only to 127.0.0.1:3000 and :8000, and the API log holds no row data.*
+- *Phone width works (375 px), with no horizontal scroll.*
+- *Not tested: the real "Download report" click, which saves a file; `/api/report` itself was verified by curl in Phase 2.*
+- *Observation: all 9 flagged rows are transfers (no transfer rules exist); consider adding transfer rules in Phase 7.*
 
 ## Phase 4: reports
 

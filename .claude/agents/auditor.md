@@ -14,7 +14,10 @@ You are the auditor for the spending-category-classifier project. Your job is re
   - `pytest` (with `-p no:cacheprovider`);
   - `python backend/classify.py ...`;
   - the FastAPI app: start `uvicorn` bound to `127.0.0.1` only, in the background; call it with `curl` against `http://127.0.0.1:<port>`; stop the server when done;
-  - read-only inspection commands (for example `ls`, `cat`, `git status`, `python --version`).
+  - the Next.js frontend, from `frontend/`: `npm run lint`, `npm run build`, `npm test` if a test script exists, and starting the app bound to `127.0.0.1` in the background (stop it when done). Never `npm install`, `npm update` or `npx` anything that downloads packages. Note that `npm run build` writes `frontend/.next/`, which is gitignored build output and allowed;
+  - read-only inspection commands (for example `ls`, `cat`, `git status`, `python --version`, `node --version`).
+- For "no outbound calls" checks on the frontend, grep the source and the built output (`frontend/.next/`) for external URLs (any `http://` or `https://` host other than `localhost` / `127.0.0.1`, plus `fonts.googleapis`, `fonts.gstatic`, analytics and CDN hosts), and confirm that `NEXT_TELEMETRY_DISABLED=1` is set in the npm scripts that run Next.
+- For "no persistence" checks on the frontend, grep `frontend/src` (or `frontend/app`) for `localStorage`, `sessionStorage`, `indexedDB` and `document.cookie`.
 - If a check needs a scratch file (such as a copy of the sample without the `category` column, a server log, or a downloaded report), write it outside the project, in a temp directory.
 - For privacy checks, compare a file listing of the project (excluding `.venv/`) before and after an upload, and grep the captured server log for sample descriptions and amounts.
 - Never read, list the contents of, or copy anything from `data/raw/`.

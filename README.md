@@ -65,6 +65,21 @@ curl -X POST --data-binary @data/sample_transactions.csv -H "Content-Type: text/
 
 Uploads are read into memory and dropped after the response; the CSV is sent as the raw body rather than a multipart form so it is never spooled to disk. Logs hold only the method, path, status, duration and row count.
 
+## Run the web app
+
+The UI is a Next.js app in `frontend/`. It talks to the API above straight from your browser; nothing goes anywhere else.
+
+1. Start the API (see "Run the API"), so it listens on http://127.0.0.1:8000.
+2. In a second terminal:
+
+   ```bash
+   cd frontend && npm install && npm run dev
+   ```
+
+3. Open http://127.0.0.1:3000, drop in a CSV (or use the sample link on the page), review flagged rows, fix categories and download the report.
+
+For a production build, use `npm run build` and then `npm run start`. Both servers bind to `127.0.0.1` only. Next.js telemetry is turned off in every npm script (`NEXT_TELEMETRY_DISABLED=1`), and the page loads no external fonts, CDNs or analytics. Uploaded data lives only in the page's memory; reloading or clicking "Start over" clears it. To point the UI at a different API address, copy `frontend/.env.example` to `frontend/.env.local` and set `NEXT_PUBLIC_API_URL`.
+
 ## Privacy
 
 - Bank statements are sensitive. Keep all data and models on your own machine.

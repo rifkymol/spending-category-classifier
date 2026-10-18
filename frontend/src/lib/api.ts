@@ -1,0 +1,53 @@
+import type { ClassifyResponse, Row } from "./types";
+
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+export const MAX_BYTES = 5 * 1024 * 1024;
+export const REVIEW_THRESHOLD = 0.6;
+
+const UNREACHABLE = `Could not reach the API. Is the API running on ${API_URL.replace(/^https?:\/\//, "")}?`;
+
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body?.detail === "string") return body.detail;
+  } catch {
+    // not JSON; fall through
+  }
+  return `The API returned an error (${res.status}).`;
+}
+
+async function send(path: string, init: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...init, cache: "no-store" });
+  } catch {
+    throw new Error(UNREACHABLE);
+  }
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return res;
+}
+
+export async function classify(file: File): Promise<ClassifyResponse> {
+  const res = await send(`/api/classify?threshold=${REVIEW_THRESHOLD}`, {
+    method: "POST",
+    headers: { "Content-Type": "text/csv" },
+    body: file,
+  });
+  return res.json();
+}
+
+export async function downloadReport(rows: Row[]): Promise<void> {
+  const res = await send("/api/report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+  });
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "spending-report.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
