@@ -9,32 +9,48 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 
 ## Phase 0: decisions
 
-- [ ] [You] Decide whether to `git init` this folder (needed for GitHub later).
+- [x] [You] Decide whether to `git init` this folder (needed for GitHub later). *(2026-10-18: done. Repo on `main`, pushed to github.com/rifkymol/spending-category-classifier; commit 6d50412, 16 files, none sensitive.)*
 - [ ] [You] Get one BCA export (CSV or PDF). Avoid the app's maintenance window, 00:00–04:00 WIB. Store it in `data/raw/`; remove any PDF password yourself.
 - [ ] [You] Decide who labels ~200 rows and in what tool.
-- [ ] [You] Approve creating the Python venv and installing dependencies.
-- [ ] [You] Approve installing Node.js.
-- [ ] [You] Approve installing Docker Desktop (needed only by Phase 5).
+- [x] [You] Approve creating the Python venv and installing dependencies. *(2026-10-18: approved; `.venv` created with `backend/requirements.txt`.)*
+- [x] [You] Approve installing Node.js. *(2026-10-18: not needed; Node.js v22.15.0 already installed.)*
+- [x] [You] Approve installing Docker Desktop (needed only by Phase 5). *(2026-10-18: not needed; Docker 29.1.5 already installed.)*
 
 ## Phase 1: core classifier under `backend/`
 
-- [ ] [builder] Create the pipeline module under `backend/` (replaces the planned `src/pipeline.py`) with `clean_description`, `RULES`, `apply_rules` (word-boundary regex `\b...\b`), `build_model`, `CONFIDENCE_THRESHOLD`, `classify(df, model, threshold)` and `load_transactions(path)` (requires a `description` column; clear error that lists the columns found).
-- [ ] [builder] Move `src/classify.py` into `backend/` as an argparse CLI with:
+- [x] [builder] Create the pipeline module under `backend/` (replaces the planned `src/pipeline.py`) with `clean_description`, `RULES`, `apply_rules` (word-boundary regex `\b...\b`), `build_model`, `CONFIDENCE_THRESHOLD`, `classify(df, model, threshold)` and `load_transactions(path)` (requires a `description` column; clear error that lists the columns found).
+- [x] [builder] Move `src/classify.py` into `backend/` as an argparse CLI with:
   - `evaluate`: stratified CV with `n_splits=min(5, smallest class count)`; reports model-only accuracy, rule coverage and precision, combined accuracy, review share, and a `classification_report`.
   - `train`: saves the model via joblib (personal models gitignored).
   - `predict`: `--model`, `--out`, `--threshold 0.6`; no `category` column needed.
-- [ ] [builder] Add pytest tests covering cleaning, rules including "shellfish" → None, classify on unlabeled data, the loader error, and end-to-end train + predict with `tmp_path`.
-- [ ] [builder] Housekeeping: add `pytest>=8` to requirements; gitignore personal models (`models/`, `*.joblib`); fix the README link; update `PLAN.md`.
-- [ ] [auditor] Run pytest, the three CLI commands on `data/sample_transactions.csv`, and `predict` on a copy without the `category` column.
-- [ ] [PM] Verify the reports and update `state-snapshot`.
+- [x] [builder] Add pytest tests covering cleaning, rules including "shellfish" → None, classify on unlabeled data, the loader error, and end-to-end train + predict with `tmp_path`.
+- [x] [builder] Housekeeping: add `pytest>=8` to requirements; gitignore personal models (`models/`, `*.joblib`); fix the README link; update `PLAN.md`.
+- [x] [auditor] Run pytest, the three CLI commands on `data/sample_transactions.csv`, and `predict` on a copy without the `category` column.
+- [x] [PM] Verify the reports and update `state-snapshot`.
+
+*Phase 1 verified 2026-10-18 (auditor, 9/9 checks; PM reran pytest):*
+- *pytest: 11 passed.*
+- *evaluate (5-fold): model-only 0.68, rule coverage 0.78, rule precision 1.00, combined 1.00, review share 0.23.*
+- *train and predict work; predict works without `category`; a missing `description` gives a one-line error.*
+- *No print or logging in `backend/classifier/`. The tree is clean, with no `backend/models/`.*
+- *README link removed; PLAN.md updated.*
 
 ## Phase 2: FastAPI API
 
-- [ ] [builder] `POST` upload endpoint: CSV in, JSON out (rows with `predicted`, `confidence`, `needs_review`, plus category totals). Processed in memory only.
-- [ ] [builder] Report download endpoint.
-- [ ] [builder] Privacy tests: no files written during an upload; logs contain no descriptions or amounts.
-- [ ] [auditor] Verify the API and the privacy tests.
-- [ ] [PM] Verify and update `state-snapshot`.
+- [x] [builder] `POST` upload endpoint: CSV in, JSON out (rows with `predicted`, `confidence`, `needs_review`, plus category totals). Processed in memory only.
+- [x] [builder] Report download endpoint.
+- [x] [builder] Privacy tests: no files written during an upload; logs contain no descriptions or amounts.
+- [x] [auditor] Verify the API and the privacy tests.
+- [x] [PM] Verify and update `state-snapshot`.
+
+*Phase 2 verified 2026-10-18 (auditor, 14/14 checks; PM reran pytest and reviewed the code):*
+- *pytest: 23 passed.*
+- *The API runs on 127.0.0.1. `/api/classify` takes the raw CSV body (not multipart) with a 5 MB cap (413). Errors return 400 and never echo row data.*
+- *`/api/report` returns a CSV attachment that reflects corrections.*
+- *Privacy: no new files in the project or the system temp dir after uploads; no descriptions or amounts in the server log; CORS allows only localhost:3000; no outbound HTTP; the model is trained in memory on synthetic data.*
+- *Follow-ups (not blocking):*
+  - *Neutralize spreadsheet formula injection in the report CSV (values starting with `= + - @`); do it in Phase 4.*
+  - *Restrict `predicted` in `/api/report` to the 5 categories and cap that request's size.*
 
 ## Phase 3: Next.js UI
 

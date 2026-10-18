@@ -43,6 +43,28 @@ python backend/classify.py predict data/sample_transactions.csv --out data/predi
 
 `predict` does not need a `category` column. Use `--threshold` (default 0.6) to change when rows are flagged for review. Run the tests with `pytest backend`.
 
+## Run the API
+
+The FastAPI app lives in `backend/app/`. Start it from the project root (it binds to 127.0.0.1 only):
+
+```bash
+.venv\Scripts\python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+```
+
+On startup it trains a model in memory on the synthetic `data/sample_transactions.csv`. Set `MODEL_PATH` to a joblib file (for example one saved by `classify.py train`) to use your own model instead. No files are written either way.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/health` | `{"status": "ok", "model": "synthetic" or "custom"}` |
+| `POST /api/classify?threshold=0.6` | Body: the raw CSV (`Content-Type: text/csv`, max 5 MB, needs a `description` column; `date` and `amount` are optional). Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule` or `model`), plus per-category totals. |
+| `POST /api/report` | Body: `{"rows": [...]}` (the rows from `/api/classify`, with any corrected `predicted` values). Returns `spending-report.csv`: a summary block, a blank line, then the rows. |
+
+```bash
+curl -X POST --data-binary @data/sample_transactions.csv -H "Content-Type: text/csv" http://127.0.0.1:8000/api/classify
+```
+
+Uploads are read into memory and dropped after the response; the CSV is sent as the raw body rather than a multipart form so it is never spooled to disk. Logs hold only the method, path, status, duration and row count.
+
 ## Privacy
 
 - Bank statements are sensitive. Keep all data and models on your own machine.

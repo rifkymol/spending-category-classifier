@@ -49,7 +49,7 @@ Constraints: Windows 11 laptop, $0, local-first. Self-hosting only; no hosted de
 
 **Agents** (`.claude/agents/`)
 - `builder`: implements one PM brief; may change only `backend/`, `frontend/`, `docker-compose.yml`, `tests/`, `requirements.txt`, `.gitignore`, `README.md`, `PLAN.md` (and `src/` only while moving it into `backend/`).
-- `auditor`: read-only verification; runs `pytest` and the CLI and reports pass/fail per check with evidence.
+- `auditor`: read-only verification; runs `pytest`, the CLI and a localhost-only FastAPI server, and reports pass/fail per check with evidence.
 
 **Skills** (`.claude/skills/`)
 - `state-snapshot`: what is true about the project now (files, known gaps, direction, open questions).

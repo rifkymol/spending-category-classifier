@@ -1,6 +1,6 @@
 # Plan: Spending Category Auto-Classifier
 
-Status: Phase 1 (classifier core + CLI under `backend/`) built; awaiting pytest run. This file is the handoff for moving the project to another Claude environment.
+Status: Phase 1 (classifier core + CLI under `backend/`) done and verified. Phase 2 (FastAPI API under `backend/app/`) built; awaiting auditor verification. This file is the handoff for moving the project to another Claude environment.
 
 > **Direction update:** this is now a self-hosted FastAPI + Next.js web app (see `CLAUDE.md`). The classifier core lives under `backend/`.
 
@@ -46,12 +46,15 @@ Predict a spending category for each bank transaction from its text description 
 |---|---|---|
 | `README.md` | Idea overview and approach | Exists |
 | `requirements.txt` | Points to `backend/requirements.txt` | Exists |
-| `backend/requirements.txt` | `pandas`, `scikit-learn`, `joblib`, `pytest` | Exists |
+| `backend/requirements.txt` | `pandas`, `scikit-learn`, `joblib`, `pytest`, `fastapi`, `uvicorn`, `httpx` | Exists |
 | `.gitignore` | Keeps statements, predictions, and models (`models/`, `*.joblib`) out of Git | Exists |
 | `data/sample_transactions.csv` | 40 synthetic rows for testing, not real data | Exists |
 | `backend/classifier/pipeline.py` | Cleaning, word-boundary rules, model, loader, `classify()` (pure, in-memory) | Exists, CLI-checked |
 | `backend/classify.py` | CLI: `evaluate`, `train`, `predict` | Exists, runs on the sample |
-| `backend/tests/test_pipeline.py` | pytest tests (cleaning, rules, classify, loader, end-to-end) | Exists, not yet run with pytest |
+| `backend/tests/test_pipeline.py` | pytest tests (cleaning, rules, classify, loader, end-to-end) | Exists, passing |
+| `backend/app/main.py` | Phase 2 FastAPI app: `GET /api/health`, `POST /api/classify` (raw CSV body, in memory, 5 MB cap), `POST /api/report` (CSV download), CORS for localhost:3000, counts-only logging | Exists, builder-tested |
+| `backend/app/schemas.py` | Pydantic request and response models | Exists |
+| `backend/tests/test_api.py` | API tests plus privacy tests (no files written during an upload, no descriptions or amounts in logs) | Exists, passing |
 | `PLAN.md` | This file | Exists |
 
 Not yet created: `data/raw/` (real statements), a virtual environment. `src/` was removed after its logic moved into `backend/`.
