@@ -32,7 +32,13 @@ description: What is true about the spending-category-classifier project right n
   - The base images are digest-pinned: python:3.13-slim@sha256:70729b46… and node:22-alpine@sha256:0a7108bf… (all 3 frontend stages).
   - The images are rebuilt (api 757 MB, web 333 MB). The versions inside the api image match `.venv`.
   - Spare-port checks (8200/3200) passed, including a synthetic BCA PDF upload inside the container.
-- The user is labeling the September statement in the app (PM dev servers on 127.0.0.1:3000/8000).
+- Version pinning commit 3c2ac87 is pushed.
+- **Phase 7 (2026-10-19):**
+  - September is labeled: `data/labels/`, 96 trainable rows.
+  - `models/personal.joblib` is trained on labels + synthetic (gitignored).
+  - On the user's labeled rows, accuracy went from 0.045 (synthetic) to 1.00 (personal, CV, optimistic).
+  - The threshold stays 0.6, to be re-checked with the October statement.
+  - The dev API on 127.0.0.1:8000 runs with `MODEL_PATH=models/personal.joblib` (`model: custom`). The frontend is on 127.0.0.1:3000 (PM background processes). Docker still uses the synthetic model unless the compose MODEL_PATH volume is uncommented.
 
 ## Files in the repo
 

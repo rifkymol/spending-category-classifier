@@ -10,8 +10,8 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 ## Phase 0: decisions
 
 - [x] [You] Decide whether to `git init` this folder (needed for GitHub later). *(2026-10-18: done. Repo on `main`, pushed to github.com/rifkymol/spending-category-classifier; commit 6d50412, 16 files, none sensitive.)*
-- [ ] [You] Get one BCA export (CSV or PDF). Avoid the app's maintenance window, 00:00–04:00 WIB. Store it in `data/raw/`; remove any PDF password yourself.
-- [ ] [You] Decide who labels ~200 rows and in what tool.
+- [x] [You] Get one BCA export (CSV or PDF). Avoid the app's maintenance window, 00:00–04:00 WIB. Store it in `data/raw/`; remove any PDF password yourself. *(2026-10-18: September e-statement PDF in `data/raw/`; it opens without a password.)*
+- [x] [You] Decide who labels ~200 rows and in what tool. *(2026-10-19: the user labels in the app's review table, using Export labels into `data/labels/`.)*
 - [x] [You] Approve creating the Python venv and installing dependencies. *(2026-10-18: approved; `.venv` created with `backend/requirements.txt`.)*
 - [x] [You] Approve installing Node.js. *(2026-10-18: not needed; Node.js v22.15.0 already installed.)*
 - [x] [You] Approve installing Docker Desktop (needed only by Phase 5). *(2026-10-18: not needed; Docker 29.1.5 already installed.)*
@@ -133,9 +133,16 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
   - `data/labels/` is gitignored.
   - *Verified 2026-10-18: auditor 11/11 checks passed (114 tests twice; lint/tsc/build; export makes no fetch; CSV escaping; the label filter drops 10/10 model rows; rule ordering incl. "toleransi" ≠ tol). PM browser check on 127.0.0.1:3000 with a made-up CSV: ✓ and edit update "Reviewed 2 of 3" and Need review 3→1; the HokBen rule hits.*
   - *Ports stay 3000/8000 by user decision. The user's other dev server (fe-sales-evaluation) was stopped on request.*
-- [ ] [You] Label ~200 rows. Start with the September statement (98 rows) in the app, then use Export labels and move the file to `data/labels/`.
-- [ ] [auditor] Run `evaluate` on the labeled set.
-- [ ] [PM] Tune the review threshold. The personal model stays local and gitignored.
+- [x] [You] Label ~200 rows. Start with the September statement (98 rows) in the app, then use Export labels and move the file to `data/labels/`. *(2026-10-19: September is done. 98 rows: user 44, rule 52, model 2. More months still to come, toward ~200.)*
+- [x] [auditor] Run `evaluate` on the labeled set. *(2026-10-19, run by the phase7-train builder, metrics only, on 95–96 trainable rows:)*
+  - *Synthetic-only model: model-only 0.54, combined 0.56. Rows the user labeled scored 0.045, and food recall was 0.07.*
+  - *Personal (labels + synthetic, 2-fold CV): model-only 0.97, combined 1.00, review share 0.105 at 0.6.*
+  - *Labels only: model-only 0.95.*
+  - *Threshold sweep: 0 wrong rows unflagged at any threshold. Review share is 0 / 0 / 0.02 / 0.105 / 0.20 / 0.46 for 0.3 to 0.8.*
+  - *Caveat: these are optimistic. It's one month, with only 16 distinct user-labeled descriptions and 2–3 rows for bills/shopping, and CV repeats merchants across folds.*
+  - *Trained `models/personal.joblib` (136 rows, gitignored).*
+- [x] [PM] Tune the review threshold. The personal model stays local and gitignored. *(2026-10-19: decision is to keep 0.6 for now. The evidence is too thin to lower it, since CV within one month is optimistic. Re-test on the October statement as a true out-of-month check: upload it, count how many flagged rows the user had to change, then decide between 0.5 and 0.6. The PM restarted the dev API with `MODEL_PATH=models/personal.joblib`, and health reports `model: custom`.)*
+- [ ] [You] Next month: upload the October statement with the personal model, review it, export labels into `data/labels/`, and report back. The PM then retrains and runs the out-of-month check.
 
 ## Later
 
