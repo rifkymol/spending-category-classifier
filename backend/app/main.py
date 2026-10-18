@@ -1,9 +1,9 @@
-"""FastAPI app: upload a transactions CSV, get categorized rows and totals back.
+"""FastAPI app: upload a transactions CSV or a BCA e-statement PDF, get categorized rows and totals back.
 
 Privacy (see CLAUDE.md):
-- Uploads are read into memory and dropped after the response. The CSV is the raw
+- Uploads are read into memory and dropped after the response. The file is the raw
   request body, not multipart, because Starlette spools multipart files over 1 MB
-  to a temp file on disk.
+  to a temp file on disk. PDFs are parsed from memory too.
 - Logs hold only method, path, status, duration and row counts. Never descriptions,
   amounts or exception messages, which can quote row data.
 - The default model is trained in memory on the synthetic sample. No files are written.
@@ -31,13 +31,14 @@ from pydantic import ValidationError
 from app.reports import report_csv, report_pdf, report_xlsx
 from app.schemas import CategoryTotal, ClassifyResponse, Health, ReportRequest, Row, Summary
 from classifier import CONFIDENCE_THRESHOLD, build_model, classify, clean_description, load_transactions
+from classifier.importers import PdfPasswordRequired, UnsupportedPdf, parse_bca_pdf, statement_frame
 
 logger = logging.getLogger("app")
 
 CATEGORIES = ["food", "transport", "shopping", "bills", "transfer"]
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_REPORT_BYTES = 10 * 1024 * 1024
-ACCEPTED_TYPES = {"text/csv", "application/octet-stream"}
+ACCEPTED_TYPES = {"text/csv", "application/octet-stream", "application/pdf"}
 SAMPLE_CSV = Path(__file__).resolve().parents[2] / "data" / "sample_transactions.csv"
 ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
 REPORT_FORMATS = {
@@ -150,6 +151,7 @@ def to_rows(result: pd.DataFrame) -> list[Row]:
         amounts = pd.to_numeric(result["amount"], errors="coerce")
     else:
         amounts = pd.Series([None] * n, index=result.index)
+    directions = result["direction"] if "direction" in result.columns else pd.Series([None] * n, index=result.index)
 
     rows = []
     for i, (idx, rec) in enumerate(result.iterrows()):
@@ -160,6 +162,7 @@ def to_rows(result: pd.DataFrame) -> list[Row]:
                 date=_optional_text(dates[idx]),
                 description=rec["description"],
                 amount=_optional_float(amounts[idx]),
+                direction=directions[idx] if directions[idx] in ("DB", "CR") else None,
                 predicted=str(rec["predicted"]),
                 confidence=1.0 if is_rule else float(rec["model_confidence"]),
                 needs_review=bool(rec["needs_review"]),
@@ -170,32 +173,64 @@ def to_rows(result: pd.DataFrame) -> list[Row]:
 
 
 def summarize(rows: list[Row]) -> Summary:
-    """Per-category counts and totals. Totals use abs(amount); share is by amount, or by count if no amounts."""
-    categories = CATEGORIES + sorted({r.predicted for r in rows} - set(CATEGORIES))
+    """Per-category counts and totals of spending. Money-in rows (direction CR) are left out of
+    the categories and counted separately. Totals use abs(amount); share is by amount, or by
+    count if no amounts. total_rows and needs_review count every row."""
+    money_in = [r for r in rows if r.direction == "CR"]
+    spending = [r for r in rows if r.direction != "CR"]
+    categories = CATEGORIES + sorted({r.predicted for r in spending} - set(CATEGORIES))
     counts = {c: 0 for c in categories}
     totals = {c: 0.0 for c in categories}
-    for r in rows:
+    for r in spending:
         counts[r.predicted] += 1
         if r.amount is not None:
             totals[r.predicted] += abs(r.amount)
 
     total_amount = sum(totals.values())
-    total_rows = len(rows)
+    spend_rows = len(spending)
 
     def share(c: str) -> float:
         if total_amount > 0:
             return round(totals[c] / total_amount, 4)
-        return round(counts[c] / total_rows, 4) if total_rows else 0.0
+        return round(counts[c] / spend_rows, 4) if spend_rows else 0.0
 
     return Summary(
-        total_rows=total_rows,
+        total_rows=len(rows),
         needs_review=sum(r.needs_review for r in rows),
         total_amount=round(total_amount, 2),
         by_category=[
             CategoryTotal(category=c, count=counts[c], total_amount=round(totals[c], 2), share=share(c))
             for c in categories
         ],
+        money_in_total=round(sum(abs(r.amount) for r in money_in if r.amount is not None), 2),
+        money_in_count=len(money_in),
     )
+
+
+def read_csv(raw: bytes) -> pd.DataFrame:
+    try:
+        return load_transactions(io.StringIO(decode(raw)))
+    except HTTPException:
+        raise
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):  # both subclass ValueError, so check first
+        raise HTTPException(400, "Could not parse the file as CSV.") from None
+    except ValueError as exc:  # missing description column; the message lists column names only
+        raise HTTPException(400, str(exc)) from None
+
+
+def read_pdf(raw: bytes) -> pd.DataFrame:
+    """A BCA e-statement PDF as date, description, amount and direction columns. Parsed in memory."""
+    try:
+        return statement_frame(parse_bca_pdf(raw))
+    except PdfPasswordRequired:
+        raise HTTPException(
+            400, "This PDF is password-protected. Save a copy without the password and upload that."
+        ) from None
+    except UnsupportedPdf:
+        raise HTTPException(400, "Only BCA e-statement PDFs are supported right now.") from None
+    except Exception as exc:  # log the type only: messages can quote row data
+        logger.error("pdf import failed: %s", type(exc).__name__)
+        raise HTTPException(400, "Only BCA e-statement PDFs are supported right now.") from None
 
 
 # ---- endpoints -------------------------------------------------------------
@@ -213,20 +248,15 @@ async def classify_upload(
 ) -> ClassifyResponse:
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if content_type not in ACCEPTED_TYPES:
-        raise HTTPException(415, "Send the CSV as the request body with Content-Type: text/csv.")
+        raise HTTPException(
+            415, "Send the file as the request body with Content-Type: text/csv or application/pdf."
+        )
 
     raw = await read_body(request)
     if not raw.strip():
         raise HTTPException(400, "The file is empty.")
 
-    try:
-        df = load_transactions(io.StringIO(decode(raw)))
-    except HTTPException:
-        raise
-    except (pd.errors.EmptyDataError, pd.errors.ParserError):  # both subclass ValueError, so check first
-        raise HTTPException(400, "Could not parse the file as CSV.") from None
-    except ValueError as exc:  # missing description column; the message lists column names only
-        raise HTTPException(400, str(exc)) from None
+    df = read_pdf(raw) if content_type == "application/pdf" or raw.startswith(b"%PDF-") else read_csv(raw)
     del raw
 
     try:

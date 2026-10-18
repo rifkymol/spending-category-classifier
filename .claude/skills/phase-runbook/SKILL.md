@@ -110,9 +110,19 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 
 ## Phase 6: BCA import
 
-- [ ] [PM] Research the format from the user's file via an anonymized page or a local masked-structure script (digits and names masked; raw contents never enter the chat).
-- [ ] [builder] Importer that outputs `date`, `description`, `amount` (CSV via pandas, or text PDF via pdfplumber).
-- [ ] [auditor] Verify the importer.
+- [x] [PM] Research the format from the user's file via an anonymized page or a local masked-structure script (digits and names masked; raw contents never enter the chat).
+- [x] [builder] Importer that outputs `date`, `description`, `amount` (CSV via pandas, or text PDF via pdfplumber).
+- [x] [auditor] Verify the importer.
+
+*Phase 6 verified 2026-10-18 (auditor 12/12; PM reran the suite, 91 passed):*
+- *6a: the user approved the pdfplumber 0.11.10 install in the worker session. The masked scan found a 10-page text PDF with only a permission lock (it opens without a password), 1,234.56 amounts, and columns TANGGAL/KETERANGAN/CBG/MUTASI/SALDO with DB/CR markers and multi-line descriptions.*
+- *6b: `classifier/importers/bca_pdf.py` parses in memory, with columns taken from the header positions. It skips the page headers, SALDO AWAL and the summary/footer, takes the year from PERIODE, and raises `PdfPasswordRequired` / `UnsupportedPdf` (400s).*
+- *`classifier/bca.py` holds the abbreviation and noise lists. Rules add `biaya adm` → bills and a transfer group checked last.*
+- *The API accepts `application/pdf`. CR rows are returned but excluded from category totals; `money_in_total` / `money_in_count` are new. The UI accepts .pdf, shows a Money in card and an In badge, and the CLI `predict` takes a .pdf.*
+- *Privacy: pdfminer logs raw page text at DEBUG, so its loggers are now capped at WARNING (caught by a caplog test). The fixture is a synthetic reportlab PDF (NAMA CONTOH / 0000000000). The leak check found no real tokens in the repo, and the server log has 0 real tokens.*
+- *Real file (masked): 98 rows (83 DB, 15 CR). DB and CR sums and counts match the statement summary exactly; 0 empty descriptions.*
+- *Known quality gap: 48 QR-payment rows to merchants with no rule go to the model (trained on 40 synthetic rows), which calls 38 of them `bills`. They're flagged for review (48 needing review). Phase 7 labeling and merchant rules address this.*
+- *Not done: the Docker images need a rebuild to include pdfplumber; no browser upload of the real PDF yet.*
 
 ## Phase 7: labeling and tuning
 

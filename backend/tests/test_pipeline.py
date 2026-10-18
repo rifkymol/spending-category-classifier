@@ -76,3 +76,68 @@ def test_end_to_end_train_predict(tmp_path):
     for col in OUTPUT_COLUMNS:
         assert col in result.columns
     assert result["predicted"].notna().all()
+
+
+# ---- BCA vocabulary and rule order ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("TRSF E-BANKING DB 0309/FTSCY/WS95051 BUDI", "transfer e banking budi"),
+        ("TRANSAKSI DEBIT TGL: 01/09 QR 936000000000000001 KFC SUDIRMAN", "qr kfc sudirman"),
+        ("KR OTOMATIS LLG-ANTAR BANK", "kredit otomatis kliring antar bank"),
+        ("BI-FAST CR 1234", "bifast transfer"),
+        ("BIAYA ADM", "biaya administrasi"),
+        ("BYR PLN", "bayar pln"),
+    ],
+)
+def test_clean_description_bca(text, expected):
+    assert clean_description(text) == expected
+
+
+def test_bca_words_inside_other_words_are_kept():
+    assert clean_description("DBS CREDIT ADMIRAL") == "dbs credit admiral"
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("TRSF E-BANKING DB 0309 BUDI", "transfer"),
+        ("BI-FAST DB TRANSFER ANI", "transfer"),
+        ("TARIK TUNAI ATM 01", "transfer"),
+        ("SETOR TUNAI", "transfer"),
+        ("KR OTOMATIS GAJI", "transfer"),
+        ("SWITCHING DB BANK LAIN", "transfer"),
+        ("BIAYA ADM", "bills"),
+        ("BIAYA ADMINISTRASI", "bills"),
+        # Merchant rules come before the transfer group.
+        ("TRANSAKSI DEBIT TGL: 01/09 QR 936000000000000001 KFC SUDIRMAN", "food"),
+        ("TRSF E-BANKING DB 0309 KFC SUDIRMAN", "food"),
+        ("BI-FAST TRANSFER TOKOPEDIA", "shopping"),
+        ("TRSF E-BANKING DB PLN PRABAYAR", "bills"),
+    ],
+)
+def test_rule_order_merchant_beats_transfer(text, expected):
+    assert apply_rules(clean_description(text)) == expected
+
+
+def test_transfer_rules_are_checked_last():
+    from classifier import RULES
+
+    assert list(RULES)[-1] == "transfer"
+
+
+def test_cli_predict_pdf(tmp_path):
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from bca_fixture import EXPECTED, make_bca_pdf
+
+    model_path, pdf_path, out_path = tmp_path / "m.joblib", tmp_path / "s.pdf", tmp_path / "p.csv"
+    pdf_path.write_bytes(make_bca_pdf())
+    assert cli.main(["train", str(SAMPLE), "--model", str(model_path)]) == 0
+    assert cli.main(["predict", str(pdf_path), "--model", str(model_path), "--out", str(out_path)]) == 0
+    result = pd.read_csv(out_path)
+    assert len(result) == len(EXPECTED)
+    assert list(result["direction"]) == [e[3] for e in EXPECTED]

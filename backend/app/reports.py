@@ -6,6 +6,9 @@ write files or temp files, and never log row data.
 Spreadsheet formula injection: any text cell that starts with = + - @, a tab or a
 carriage return gets a leading ' so Excel and LibreOffice treat it as text. Numbers
 stay numeric, so negative amounts are not touched.
+
+Money in (rows with direction CR, from bank PDFs) is not spending: the category totals
+leave it out, and each report shows it on its own "Money in" line when there is any.
 """
 
 import csv
@@ -93,6 +96,8 @@ def report_csv(rows: list[Row], summary: Summary) -> str:
     writer.writerow(["category", "count", "total_amount", "share"])
     for c in summary.by_category:
         writer.writerow([_safe(c.category), c.count, c.total_amount, c.share])
+    if summary.money_in_count:
+        writer.writerow(["money in", summary.money_in_count, summary.money_in_total, ""])
     writer.writerow([])
     writer.writerow(FIELDS)
     for r in rows:
@@ -112,7 +117,7 @@ def _xl(value):
     return _xl_text(value) if isinstance(value, str) else value
 
 
-_TX_WIDTHS = {"id": 6, "date": 12, "description": 42, "amount": 14, "predicted": 12,
+_TX_WIDTHS = {"id": 6, "date": 12, "description": 42, "amount": 14, "direction": 10, "predicted": 12,
               "confidence": 12, "needs_review": 14, "source": 9}
 
 
@@ -131,10 +136,12 @@ def report_xlsx(rows: list[Row], summary: Summary) -> bytes:
         ("Transactions", summary.total_rows),
         ("Rows needing review", summary.needs_review),
     ]
+    if summary.money_in_count:
+        info += [("Money in (IDR)", summary.money_in_total), ("Money-in transactions", summary.money_in_count)]
     for i, (label, value) in enumerate(info, start=3):
         ws.cell(row=i, column=1, value=label).font = bold
         cell = ws.cell(row=i, column=2, value=_xl(value))
-        if label.startswith("Total spend"):
+        if label.endswith("(IDR)"):
             cell.number_format = "#,##0"
 
     header_row = 3 + len(info) + 1
@@ -254,8 +261,12 @@ def report_pdf(rows: list[Row], summary: Summary) -> bytes:
         Paragraph(f"Total spend: <b>{format_idr(summary.total_amount) if has_amounts else '-'}</b>", body),
         Paragraph(f"Transactions: {summary.total_rows:,}".replace(",", "."), body),
         Paragraph(f"Needs review: {summary.needs_review:,}".replace(",", "."), body),
-        Spacer(1, 6 * mm),
     ]
+    if summary.money_in_count:
+        story.append(Paragraph(
+            f"Money in: {format_idr(summary.money_in_total)} "
+            f"({summary.money_in_count} transactions, not counted as spend)", body))
+    story.append(Spacer(1, 6 * mm))
 
     pie = _pie(summary)
     if pie is not None:
@@ -274,7 +285,7 @@ def report_pdf(rows: list[Row], summary: Summary) -> bytes:
         [
             r.date or "",
             Paragraph(escape(r.description), cell),
-            format_idr(r.amount) if r.amount is not None else "",
+            ("+" if r.direction == "CR" else "") + format_idr(r.amount) if r.amount is not None else "",
             r.predicted + (" *" if r.needs_review else ""),
             r.source,
         ]
@@ -284,7 +295,7 @@ def report_pdf(rows: list[Row], summary: Summary) -> bytes:
     tx_table.setStyle(TableStyle(_GRID + [("ALIGN", (2, 0), (2, -1), "RIGHT")]))
     story += [
         Paragraph("Transactions", styles["Heading2"]),
-        Paragraph("* needs review", cell),
+        Paragraph("* needs review" + ("; + money in" if summary.money_in_count else ""), cell),
         Spacer(1, 2 * mm),
         tx_table,
     ]

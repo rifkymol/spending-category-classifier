@@ -28,10 +28,12 @@ async function send(path: string, init: RequestInit): Promise<Response> {
   return res;
 }
 
+export const isPdf = (file: File) => file.name.toLowerCase().endsWith(".pdf");
+
 export async function classify(file: File): Promise<ClassifyResponse> {
   const res = await send(`/api/classify?threshold=${REVIEW_THRESHOLD}`, {
     method: "POST",
-    headers: { "Content-Type": "text/csv" },
+    headers: { "Content-Type": isPdf(file) ? "application/pdf" : "text/csv" },
     body: file,
   });
   return res.json();

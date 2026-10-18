@@ -8,6 +8,8 @@ export interface Row {
   date: string | null;
   description: string;
   amount: number | null;
+  /** From bank PDFs: "CR" is money in, "DB" money out. Null for CSV rows (all spending). */
+  direction?: "DB" | "CR" | null;
   predicted: string;
   confidence: number;
   needs_review: boolean;
@@ -26,6 +28,8 @@ export interface Summary {
   needs_review: number;
   total_amount: number;
   by_category: CategoryTotal[];
+  money_in_total: number;
+  money_in_count: number;
 }
 
 export interface ClassifyResponse {

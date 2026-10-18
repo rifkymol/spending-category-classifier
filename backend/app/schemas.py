@@ -13,6 +13,7 @@ class Row(BaseModel):
     date: str | None
     description: str
     amount: float | None
+    direction: Literal["DB", "CR"] | None = None  # from bank PDFs; CR is money in. None for CSV rows.
     predicted: str
     confidence: float
     needs_review: bool
@@ -29,8 +30,10 @@ class CategoryTotal(BaseModel):
 class Summary(BaseModel):
     total_rows: int
     needs_review: int
-    total_amount: float
+    total_amount: float  # spending only: rows that are not money in
     by_category: list[CategoryTotal]
+    money_in_total: float = 0.0
+    money_in_count: int = 0
 
 
 class ClassifyResponse(BaseModel):

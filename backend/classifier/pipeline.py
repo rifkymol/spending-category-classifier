@@ -17,12 +17,20 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline, make_pipeline
 
-# Merchant phrases checked after cleaning. Extend this as you find new merchants.
+from .bca import normalize_bca
+
+# Phrases checked after cleaning, category by category in this order. Extend this as you
+# find new merchants. "transfer" comes last so a merchant wins over transfer words, e.g. a
+# QR payment or e-banking transfer to KFC is still food.
 RULES = {
     "food": ["grab food", "gofood", "go food", "mcd", "kfc", "kopi kenangan", "starbucks", "padang"],
     "transport": ["grab ride", "grab car", "gojek", "go ride", "mrt", "transjakarta", "shell", "pertamina"],
     "shopping": ["shopee", "tokopedia", "lazada", "blibli", "tiktok shop"],
-    "bills": ["pln", "indihome", "telkomsel", "pdam", "bpjs", "netflix", "spotify"],
+    "bills": ["pln", "indihome", "telkomsel", "pdam", "bpjs", "netflix", "spotify", "biaya adm", "biaya administrasi"],
+    "transfer": [
+        "trsf e banking", "transfer", "bi fast", "bifast", "tarik tunai", "setor tunai",
+        "kr otomatis", "kredit otomatis", "switching",
+    ],
 }
 
 # Whole-phrase matching, so "shell" does not match "shellfish".
@@ -38,12 +46,13 @@ OUTPUT_COLUMNS = ["cleaned", "rule_category", "model_category", "model_confidenc
 
 
 def clean_description(text: str) -> str:
-    """Lowercase, strip dates and long numbers, and keep only letters and spaces."""
+    """Lowercase, strip dates and long numbers, keep only letters and spaces, then
+    expand BCA abbreviations and drop BCA boilerplate (see bca.py)."""
     text = text.lower()
     text = re.sub(r"\d{2}[/-]\d{2}([/-]\d{2,4})?", " ", text)  # dates like 09/12/26
     text = re.sub(r"\d{4,}", " ", text)  # reference and card numbers
     text = re.sub(r"[^a-z\s]", " ", text)  # "*", "-", punctuation
-    return re.sub(r"\s+", " ", text).strip()
+    return normalize_bca(re.sub(r"\s+", " ", text).strip())
 
 
 def apply_rules(cleaned: str) -> str | None:

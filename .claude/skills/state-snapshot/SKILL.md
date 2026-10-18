@@ -23,7 +23,10 @@ description: What is true about the spending-category-classifier project right n
 - **Classifier:** unchanged (5 categories, rules first, then TF-IDF `char_wb` 2-5 + LogisticRegression, review threshold 0.6).
 - **Layout:** `backend/` (FastAPI app plus the classifier package; the planned `src/pipeline.py` work moves here), `frontend/` (Next.js), `docker-compose.yml` at the root.
 - **Privacy rules:** in-memory processing only, no database, no uploads on disk; logs hold only counts and timings; no outbound calls (no analytics, no external fonts/CDNs, `NEXT_TELEMETRY_DISABLED=1`, bind to localhost); email off by default and only via the user's own SMTP with a warning; the shipped model is trained only on synthetic data, personal models and labels stay local and gitignored; automated tests enforce these rules.
-- **Phases 1–5 are done and verified (2026-10-18):** the core classifier, the FastAPI API, the Next.js UI, the CSV/Excel/PDF reports and Docker self-hosting. `docker compose up --build` serves the app on 127.0.0.1:3000 with hardened read-only containers. Phase 6 (BCA import) is next, and it needs a real BCA export from the user.
+- **Phases 1–6 are done and verified (2026-10-18):** the classifier, the API, the UI, reports, Docker and the BCA e-statement PDF import.
+- The real September statement parses to 98 rows (83 DB, 15 CR), with totals matching the statement.
+- Next is Phase 7 (labeling and tuning). QR-merchant payments are mostly misclassified as `bills` by the synthetic-trained model: 48 of 98 rows need review.
+- The Docker images are stale (no pdfplumber) until rebuilt. Phase 6 is not committed yet.
 
 ## Files in the repo
 
@@ -57,7 +60,7 @@ description: What is true about the spending-category-classifier project right n
 
 ## Environment
 
-- Git repo on `main`, remote `origin` = github.com/rifkymol/spending-category-classifier. Initial commit 6d50412 (16 files, no sensitive files) is pushed. Phase 3 commit 53f97e0 is pushed. Phases 4 and 5 are NOT committed yet.
+- Git repo on `main`, remote `origin` = github.com/rifkymol/spending-category-classifier. Initial commit 6d50412 (16 files, no sensitive files) is pushed. Phases 4–5 commit 1170c3b (19 files, nothing sensitive) is pushed; `main` = `origin/main` (PM verified 2026-10-18).
 - Docker Desktop is running. The images `spending-classifier-api:local` and `spending-classifier-web:local` are built locally.
 - Port 3000 is also used by an unrelated dev server from the user's other project (fe-sales-evaluation) on 0.0.0.0:3000.
 - Follow-up: pin the base images and Python package versions (`backend/requirements-runtime.txt` uses `>=` ranges).

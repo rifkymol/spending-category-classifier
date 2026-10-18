@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { classify, MAX_BYTES } from "@/lib/api";
+import { classify, isPdf, MAX_BYTES } from "@/lib/api";
 import type { ClassifyResponse } from "@/lib/types";
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
 }
 
 function validate(file: File): string | null {
-  if (!file.name.toLowerCase().endsWith(".csv")) return "Please choose a .csv file.";
+  if (!file.name.toLowerCase().endsWith(".csv") && !isPdf(file)) return "Please choose a .pdf or .csv file.";
   if (file.size > MAX_BYTES) return "That file is larger than 5 MB.";
   if (file.size === 0) return "That file is empty.";
   return null;
@@ -46,6 +46,7 @@ export default function Upload({ onResult }: Props) {
       <h2 id="upload-heading" className="text-lg font-semibold">
         Upload a statement
       </h2>
+      <p className="mt-1 text-sm text-slate-700">Upload a BCA e-statement PDF or a CSV.</p>
       <p className="mt-1 flex items-center gap-2 text-sm text-emerald-800">
         <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0 fill-current">
           <path d="M10 1.5 3 4.5v5c0 4.2 3 7.9 7 9 4-1.1 7-4.8 7-9v-5l-7-3Zm-1 12.1-3.3-3.3 1.4-1.4L9 10.8l3.9-3.9 1.4 1.4L9 13.6Z" />
@@ -76,9 +77,10 @@ export default function Upload({ onResult }: Props) {
           </span>
         ) : (
           <>
-            <span className="font-medium text-slate-800">Drop a CSV file here, or click to choose one</span>
+            <span className="font-medium text-slate-800">Drop a PDF or CSV file here, or click to choose one</span>
             <span className="mt-1 text-sm text-slate-600">
-              Needs a <code className="rounded bg-slate-100 px-1">description</code> column; <code className="rounded bg-slate-100 px-1">date</code> and{" "}
+              PDF: a BCA e-statement without a password. CSV: needs a{" "}
+              <code className="rounded bg-slate-100 px-1">description</code> column; <code className="rounded bg-slate-100 px-1">date</code> and{" "}
               <code className="rounded bg-slate-100 px-1">amount</code> are optional. Max 5 MB.
             </span>
           </>
@@ -87,7 +89,7 @@ export default function Upload({ onResult }: Props) {
           id={inputId}
           ref={inputRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.pdf,text/csv,application/pdf"
           className="sr-only"
           disabled={loading}
           onChange={(e) => handle(e.target.files?.[0])}

@@ -5,3 +5,4 @@ fastapi
 uvicorn
 openpyxl==3.1.5
 reportlab==5.0.1
+pdfplumber==0.11.10

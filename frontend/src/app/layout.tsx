@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Spending Classifier",
-  description: "Categorize your bank-statement CSV locally. Nothing is stored.",
+  description: "Categorize your BCA e-statement PDF or bank-statement CSV locally. Nothing is stored.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

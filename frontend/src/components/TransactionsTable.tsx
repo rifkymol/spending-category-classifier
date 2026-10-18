@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatIDR, formatPercent } from "@/lib/format";
+import { isMoneyIn } from "@/lib/summary";
 import { CATEGORIES, type Row } from "@/lib/types";
 
 interface Props {
@@ -73,6 +74,11 @@ export default function TransactionsTable({ rows, onRelabel }: Props) {
                   <td className="whitespace-nowrap px-4 py-2 tabular-nums text-slate-700">{r.date ?? "—"}</td>
                   <td className="px-4 py-2">
                     <span className="break-all">{r.description}</span>
+                    {isMoneyIn(r) && (
+                      <span className="ml-2 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-900">
+                        In
+                      </span>
+                    )}
                     {r.needs_review && (
                       <span className="ml-2 inline-block rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-900">
                         Review
@@ -80,7 +86,7 @@ export default function TransactionsTable({ rows, onRelabel }: Props) {
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums">
-                    {r.amount === null ? "—" : formatIDR(r.amount)}
+                    {r.amount === null ? "—" : `${isMoneyIn(r) ? "+" : ""}${formatIDR(r.amount)}`}
                   </td>
                   <td className="px-4 py-2">
                     <label className="sr-only" htmlFor={`cat-${r.id}`}>

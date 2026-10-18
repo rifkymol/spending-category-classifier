@@ -5,31 +5,38 @@ const round = (value: number, digits: number) => {
   return Math.round(value * f) / f;
 };
 
+/** Money in (direction CR) is not spending. */
+export const isMoneyIn = (r: Row) => r.direction === "CR";
+
 /**
  * Per-category counts and totals, mirroring summarize() in backend/app/main.py.
+ * Money-in rows are left out of the categories and counted separately.
  * Totals use abs(amount); share is by amount, or by count when there are no amounts.
+ * total_rows and needs_review count every row.
  */
 export function summarize(rows: Row[]): Summary {
-  const extra = [...new Set(rows.map((r) => r.predicted))]
+  const moneyIn = rows.filter(isMoneyIn);
+  const spending = rows.filter((r) => !isMoneyIn(r));
+  const extra = [...new Set(spending.map((r) => r.predicted))]
     .filter((c) => !(CATEGORIES as readonly string[]).includes(c))
     .sort();
   const categories = [...CATEGORIES, ...extra];
   const counts = new Map(categories.map((c) => [c, 0]));
   const totals = new Map(categories.map((c) => [c, 0]));
-  for (const r of rows) {
+  for (const r of spending) {
     counts.set(r.predicted, counts.get(r.predicted)! + 1);
     if (r.amount !== null) totals.set(r.predicted, totals.get(r.predicted)! + Math.abs(r.amount));
   }
 
   const totalAmount = [...totals.values()].reduce((a, b) => a + b, 0);
-  const totalRows = rows.length;
+  const spendRows = spending.length;
   const share = (c: string) => {
     if (totalAmount > 0) return round(totals.get(c)! / totalAmount, 4);
-    return totalRows ? round(counts.get(c)! / totalRows, 4) : 0;
+    return spendRows ? round(counts.get(c)! / spendRows, 4) : 0;
   };
 
   return {
-    total_rows: totalRows,
+    total_rows: rows.length,
     needs_review: rows.filter((r) => r.needs_review).length,
     total_amount: round(totalAmount, 2),
     by_category: categories.map((c) => ({
@@ -38,6 +45,11 @@ export function summarize(rows: Row[]): Summary {
       total_amount: round(totals.get(c)!, 2),
       share: share(c),
     })),
+    money_in_total: round(
+      moneyIn.reduce((sum, r) => sum + (r.amount === null ? 0 : Math.abs(r.amount)), 0),
+      2,
+    ),
+    money_in_count: moneyIn.length,
   };
 }
 

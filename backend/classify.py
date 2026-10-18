@@ -4,6 +4,7 @@ Usage (from the project root):
     python backend/classify.py evaluate data/sample_transactions.csv
     python backend/classify.py train data/sample_transactions.csv
     python backend/classify.py predict data/sample_transactions.csv --out data/predictions.csv
+    python backend/classify.py predict path/to/bca-estatement.pdf --out data/predictions.csv
 """
 
 import argparse
@@ -16,6 +17,7 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import StratifiedKFold
 
 from classifier import CONFIDENCE_THRESHOLD, build_model, classify, clean_description, load_transactions
+from classifier.importers import parse_bca_pdf, statement_frame
 
 BACKEND_DIR = Path(__file__).resolve().parent
 DEFAULT_MODEL = BACKEND_DIR / "models" / "model.joblib"
@@ -77,7 +79,11 @@ def predict(args) -> None:
     if not model_path.exists():
         raise ValueError(f"Model not found at {model_path}. Run 'train' first.")
     model = joblib.load(model_path)
-    df = classify(load_transactions(args.csv), model, args.threshold)
+    if str(args.csv).lower().endswith(".pdf"):  # a BCA e-statement, parsed in memory
+        transactions = statement_frame(parse_bca_pdf(Path(args.csv).read_bytes()))
+    else:
+        transactions = load_transactions(args.csv)
+    df = classify(transactions, model, args.threshold)
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
@@ -100,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default=str(DEFAULT_MODEL))
     p.set_defaults(func=train)
 
-    p = sub.add_parser("predict", help="classify a CSV (no category column needed)")
+    p = sub.add_parser("predict", help="classify a CSV (no category column needed) or a BCA e-statement PDF")
     p.add_argument("csv")
     p.add_argument("--model", default=str(DEFAULT_MODEL))
     p.add_argument("--out", default=str(DEFAULT_OUT))

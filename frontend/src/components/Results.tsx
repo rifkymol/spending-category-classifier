@@ -92,8 +92,14 @@ export default function Results({ rows, fileName, onChange, onReset }: Props) {
         </p>
       )}
 
-      <dl className="grid gap-4 sm:grid-cols-3">
+      <dl className={`grid gap-4 sm:grid-cols-2 ${summary.money_in_total > 0 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         <Card label="Total spend" value={hasAmounts ? formatIDR(summary.total_amount) : "—"} />
+        {summary.money_in_total > 0 && (
+          <Card
+            label={`Money in (${summary.money_in_count.toLocaleString("id-ID")}, not counted as spend)`}
+            value={formatIDR(summary.money_in_total)}
+          />
+        )}
         <Card label="Transactions" value={summary.total_rows.toLocaleString("id-ID")} />
         <Card
           label="Need review"
