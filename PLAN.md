@@ -1,5 +1,7 @@
 # Plan: Spending Category Auto-Classifier
 
+> **Historical document.** For the current plan see the [Roadmap in README.md](README.md#roadmap); for what has shipped see [CHANGELOG.md](CHANGELOG.md).
+
 Status: Phase 1 (classifier core + CLI under `backend/`) done and verified. Phase 2 (FastAPI API under `backend/app/`) built; awaiting auditor verification. This file is the handoff for moving the project to another Claude environment.
 
 > **Direction update:** this is now a self-hosted FastAPI + Next.js web app (see `CLAUDE.md`). The classifier core lives under `backend/`.

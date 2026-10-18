@@ -105,7 +105,7 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 - *Both containers: read-only root filesystem (writes to /app fail, /tmp works), CapDrop ALL, no-new-privileges, non-root (`app` uid 10001 and `node` uid 1000), restart policy no.*
 - *Telemetry is off in the web container (NEXT_TELEMETRY_DISABLED=1). The API logs hold no row data.*
 - *`docker compose down` is clean, the images are kept, and the project tree is unchanged.*
-- *Note: an unrelated dev server from the user's other project (fe-sales-evaluation, node PID 36740) listens on 0.0.0.0:3000. It's not this app, but it shares port 3000.*
+- *Note: an unrelated local dev server can occupy port 3000. If 127.0.0.1:3000 shows a different app, stop that server first.*
 - *Follow-up: pin the base images and Python package versions before publishing (reproducibility; scikit-learn matters for loading personal models).*
 
 ## Phase 6: BCA import
@@ -132,10 +132,10 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
   - Public chain merchant rules added; transfer still last.
   - `data/labels/` is gitignored.
   - *Verified 2026-10-18: auditor 11/11 checks passed (114 tests twice; lint/tsc/build; export makes no fetch; CSV escaping; the label filter drops 10/10 model rows; rule ordering incl. "toleransi" ≠ tol). PM browser check on 127.0.0.1:3000 with a made-up CSV: ✓ and edit update "Reviewed 2 of 3" and Need review 3→1; the HokBen rule hits.*
-  - *Ports stay 3000/8000 by user decision. The user's other dev server (fe-sales-evaluation) was stopped on request.*
+  - *Ports stay 3000/8000 by user decision. An unrelated dev server that was holding port 3000 was stopped on request.*
 - [x] [You] Label ~200 rows. Start with the September statement (98 rows) in the app, then use Export labels and move the file to `data/labels/`. *(2026-10-19: September is done. 98 rows: user 44, rule 52, model 2. More months still to come, toward ~200.)*
 - [x] [auditor] Run `evaluate` on the labeled set. *(2026-10-19, run by the phase7-train builder, metrics only, on 95–96 trainable rows:)*
-  - *Synthetic-only model: model-only 0.54, combined 0.56. Rows the user labeled scored 0.045, and food recall was 0.07.*
+  - *Synthetic-only model: model-only 0.54, combined 0.56, review share 0.458 (44 rows) at 0.6. Rows the user labeled scored 0.045, and food recall was 0.07.*
   - *Personal (labels + synthetic, 2-fold CV): model-only 0.97, combined 1.00, review share 0.105 at 0.6.*
   - *Labels only: model-only 0.95.*
   - *Threshold sweep: 0 wrong rows unflagged at any threshold. Review share is 0 / 0 / 0.02 / 0.105 / 0.20 / 0.46 for 0.3 to 0.8.*
@@ -144,8 +144,21 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 - [x] [PM] Tune the review threshold. The personal model stays local and gitignored. *(2026-10-19: decision is to keep 0.6 for now. The evidence is too thin to lower it, since CV within one month is optimistic. Re-test on the October statement as a true out-of-month check: upload it, count how many flagged rows the user had to change, then decide between 0.5 and 0.6. The PM restarted the dev API with `MODEL_PATH=models/personal.joblib`, and health reports `model: custom`.)*
 - [ ] [You] Next month: upload the October statement with the personal model, review it, export labels into `data/labels/`, and report back. The PM then retrains and runs the out-of-month check.
 
+## Portfolio polish
+
+- [x] [builder] Wrote the README landing page, PRIVACY.md, MIT LICENSE, CHANGELOG (v0.1–v0.7), CONTRIBUTING and `.github/workflows/ci.yml` (backend pytest; frontend lint → build → tsc; docker build; `contents: read`). *(2026-10-19)*
+- [x] [PM] Captured 4 screenshots with synthetic data only: upload, results, review (fake merchants) and a PDF report rendered from the synthetic model. *(2026-10-19)*
+- [x] [auditor] Docs accuracy + leak audit. Every claim matches the code, all cited tests exist, links resolve, the YAML parses, the license is right, 114 tests pass, and there are no leaks. The audit flagged that the README results table mixed accuracy bases; the table was fixed, and the 46% figure is traced to the 7b report (0.458). The other-project mentions were removed from `.claude/` files (older commits still contain the folder name). *(2026-10-19)*
+- [ ] [You] Approve commit + push. The first push triggers GitHub Actions CI, which hasn't been run on Linux yet.
+- [ ] [PM] Optional follow-up: a test that fails on `next/font` or external URLs in `frontend/src`, so the "no external assets" guarantee is enforced.
+
 ## Later
 
 - [ ] [PM] Plan opt-in email (deferred by the user on 2026-10-18): the user's own SMTP settings, off by default, with a clear warning that the report leaves the machine.
 - [ ] [PM] Plan a sentence-embeddings (MiniLM) comparison against the TF-IDF baseline.
 - [ ] [PM] Plan the review loop that feeds corrections back into training.
+- [ ] [PM] Future plan (parked by the user on 2026-10-19): **"bring your own labels", stateless per-request training.**
+  - Each request carries the statement plus the user's labels file (or, opt-in, labels in IndexedDB on the device).
+  - The server trains a throwaway mini-model in memory: shared base (synthetic + public rules) + user labels weighted higher + an exact-match shortcut for previously labeled descriptions. It classifies, then discards everything. No accounts, no database, no stored models.
+  - It replaces the CLI train + MODEL_PATH restart for self-hosting, and would allow a hosted demo without storing data.
+  - Open points: request format (JSON or in-memory multipart, never spooled to disk), a labels size/row cap, validation, and UU PDP obligations if ever hosted publicly.

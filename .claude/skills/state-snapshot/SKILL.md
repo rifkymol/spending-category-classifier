@@ -74,7 +74,7 @@ description: What is true about the spending-category-classifier project right n
 
 - Git repo on `main`, remote `origin` = github.com/rifkymol/spending-category-classifier. Initial commit 6d50412 (16 files, no sensitive files) is pushed. Phases 4–5 commit 1170c3b (19 files, nothing sensitive) is pushed; `main` = `origin/main` (PM verified 2026-10-18).
 - Docker Desktop is running. The images `spending-classifier-api:local` and `spending-classifier-web:local` are built locally.
-- Port 3000 is also used by an unrelated dev server from the user's other project (fe-sales-evaluation) on 0.0.0.0:3000.
+- Port 3000 can be taken by unrelated local dev servers. Check what is listening if 127.0.0.1:3000 shows another app.
 - Follow-up: pin the base images and Python package versions (`backend/requirements-runtime.txt` uses `>=` ranges).
 - `.venv` exists (Python 3.13.3) with `backend/requirements.txt` installed, including fastapi, uvicorn and httpx.
 - System Python 3.13.3 also has pandas 2.2.3 and scikit-learn 1.8.0.
