@@ -103,7 +103,7 @@ def test_xlsx_report(client, rows):
     assert resp.headers["content-disposition"] == 'attachment; filename="spending-report.xlsx"'
 
     wb = load_workbook(io.BytesIO(resp.content))
-    assert wb.sheetnames == ["Summary", "Transactions"]
+    assert wb.sheetnames == ["Summary", "Transactions", "Insights"]
 
     summary = wb["Summary"]
     assert summary._charts, "the Summary sheet has a pie chart"

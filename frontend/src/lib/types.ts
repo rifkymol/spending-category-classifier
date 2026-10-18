@@ -36,7 +36,51 @@ export interface Summary {
   money_in_count: number;
 }
 
+/** Spending insights for one statement (backend/classifier/insights.py). Amounts are positive Rp. */
+export interface Merchant {
+  merchant: string;
+  count: number;
+  total: number;
+  avg: number;
+}
+
+export interface Insights {
+  cash_flow: {
+    money_in: number;
+    money_in_count: number;
+    total_out: number;
+    out_count: number;
+    /** Money out that is not a transfer. */
+    living_spend: number;
+    transfers_out: number;
+    net: number;
+    /** net / money_in; null when nothing came in (e.g. CSV uploads). */
+    savings_rate: number | null;
+  };
+  top_merchants: { by_total: Merchant[]; by_count: Merchant[] };
+  small_spends: { threshold: number; count: number; total: number; share_of_living: number | null };
+  fees: { count: number; total: number };
+  budget_503020: {
+    needs: number;
+    wants: number;
+    /** Net; null when nothing came in. */
+    savings: number | null;
+    unclassified_transfers: number;
+    basis: "money_in" | "total_out";
+    basis_amount: number;
+    shares: { needs: number | null; wants: number | null; savings: number | null; unclassified_transfers: number | null };
+    targets: Record<string, number>;
+    mapping: Record<string, string[]>;
+  };
+  period: { start: string | null; end: string | null; days: number | null; months_factor: number };
+  /** Spend per category scaled to one month. */
+  per_month: Record<string, number>;
+  highlights: { text: string; impact_rp: number }[];
+  disclaimer: string;
+}
+
 export interface ClassifyResponse {
   rows: Row[];
   summary: Summary;
+  insights: Insights;
 }

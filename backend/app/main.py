@@ -29,8 +29,9 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from app.reports import report_csv, report_pdf, report_xlsx
-from app.schemas import CategoryTotal, ClassifyResponse, Health, ReportRequest, Row, Summary
+from app.schemas import CategoryTotal, ClassifyResponse, Health, Insights, ReportRequest, Row, Summary
 from classifier import CONFIDENCE_THRESHOLD, build_model, classify, clean_description, load_transactions
+from classifier.insights import compute_insights
 from classifier.importers import PdfPasswordRequired, UnsupportedPdf, parse_bca_pdf, statement_frame
 
 logger = logging.getLogger("app")
@@ -263,21 +264,18 @@ async def classify_upload(
         result = classify(df, request.app.state.model, threshold)
         rows = to_rows(result)
         summary = summarize(rows)
+        insights = compute_insights(rows)
     except Exception as exc:  # log the type only: messages can quote row data
         logger.error("classify failed: %s", type(exc).__name__)
         raise HTTPException(500, "Classification failed.") from None
 
     request.state.row_count = len(rows)
-    return ClassifyResponse(rows=rows, summary=summary)
+    return ClassifyResponse(rows=rows, summary=summary, insights=insights)
 
 
-@app.post("/api/report")
-async def report(
-    request: Request,
-    format: Literal["csv", "xlsx", "pdf"] = Query("csv"),
-) -> Response:
-    """Build a report from the (possibly corrected) rows. The JSON body is read and validated by hand
-    so its size can be capped before parsing and validation errors never echo row data."""
+async def read_rows(request: Request) -> list[Row]:
+    """The {rows} JSON body of /api/report and /api/insights. Read and validated by hand so its
+    size can be capped before parsing and validation errors never echo row data."""
     raw = await read_body(request, MAX_REPORT_BYTES, "Request")
     try:
         body = ReportRequest.model_validate_json(raw)
@@ -285,14 +283,35 @@ async def report(
         raise RequestValidationError(
             [{**e, "loc": ("body", *e["loc"])} for e in exc.errors(include_url=False, include_input=False)]
         ) from None
-    del raw
+    request.state.row_count = len(body.rows)
+    return body.rows
 
-    rows = body.rows
-    request.state.row_count = len(rows)
+
+@app.post("/api/insights", response_model=Insights)
+async def insights_endpoint(request: Request) -> Insights:
+    """Insights from the (possibly corrected) rows. Stateless: nothing is kept after the response."""
+    rows = await read_rows(request)
+    try:
+        return Insights.model_validate(compute_insights(rows))
+    except Exception as exc:  # log the type only: messages can quote row data
+        logger.error("insights failed: %s", type(exc).__name__)
+        raise HTTPException(500, "Could not compute insights.") from None
+
+
+@app.post("/api/report")
+async def report(
+    request: Request,
+    format: Literal["csv", "xlsx", "pdf"] = Query("csv"),
+) -> Response:
+    """Build a report from the (possibly corrected) rows."""
+    rows = await read_rows(request)
     summary = summarize(rows)
     try:
-        builder = {"csv": report_csv, "xlsx": report_xlsx, "pdf": report_pdf}[format]
-        content = builder(rows, summary)
+        if format == "csv":
+            content = report_csv(rows, summary)
+        else:
+            builder = {"xlsx": report_xlsx, "pdf": report_pdf}[format]
+            content = builder(rows, summary, compute_insights(rows))
     except Exception as exc:  # log the type only: messages can quote row data
         logger.error("report failed: %s", type(exc).__name__)
         raise HTTPException(500, "Could not build the report.") from None

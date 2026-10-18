@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on 
 - Portfolio docs: rewritten README, `PRIVACY.md`, `CONTRIBUTING.md`, this changelog and an MIT `LICENSE`.
 - GitHub Actions CI: backend tests, frontend lint/typecheck/build, and `docker compose build`.
 
+## [0.8.0] - 2026-10-19 (Phase 8a: Unreleased)
+
+### Added
+- Spending insights from one statement (`backend/classifier/insights.py`): cash flow and savings rate, living spend vs transfers, top 5 merchants by total and by count, small spends under Rp 50,000, bank fees, a 50/30/20 view (needs = bills + transport, wants = food + shopping, transfers unclassified), per-month figures and 3–5 highlights ranked by Rupiah impact.
+- `POST /api/insights` (same caps and no-echo validation as `/api/report`); `/api/classify` now returns `insights` too.
+- Insights panel in the UI: cash-flow cards, a 50/30/20 bar, top merchants, small-spend and fee callouts, highlights and what-if sliders (0–50% per category). It refreshes after every correction and keeps the last figures if a refresh fails.
+- PDF report "Highlights" section and an Excel "Insights" sheet.
+- The disclaimer "Budgeting insights, not financial advice." in the UI and reports.
+
 ## [0.7.0] - 2026-10-19 (Phase 7: `767b369`, `3c2ac87`, `0baf046`)
 
 ### Added

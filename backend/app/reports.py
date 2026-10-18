@@ -9,6 +9,9 @@ stay numeric, so negative amounts are not touched.
 
 Money in (rows with direction CR, from bank PDFs) is not spending: the category totals
 leave it out, and each report shows it on its own "Money in" line when there is any.
+
+The Excel and PDF reports also carry the insights from classifier.insights (an "Insights"
+sheet and a "Highlights" section). The CSV report does not.
 """
 
 import csv
@@ -32,6 +35,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.schemas import Row, Summary
+from classifier.insights import compute_insights
 
 FIELDS = list(Row.model_fields)
 TITLE = "Spending report"
@@ -121,7 +125,75 @@ _TX_WIDTHS = {"id": 6, "date": 12, "description": 42, "amount": 14, "direction":
               "confidence": 12, "needs_review": 14, "source": 9}
 
 
-def report_xlsx(rows: list[Row], summary: Summary) -> bytes:
+def _insights_sheet(wb: Workbook, insights: dict) -> None:
+    ws = wb.create_sheet("Insights")
+    bold = Font(bold=True)
+    idr = "#,##0"
+    pct = "0.0%"
+    ws.append(["Insights"])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append([_xl_text(insights["disclaimer"])])
+
+    def section(title: str, header: list[str] | None = None) -> None:
+        ws.append([])
+        ws.append([title])
+        ws.cell(row=ws.max_row, column=1).font = bold
+        if header:
+            ws.append(header)
+            for cell in ws[ws.max_row]:
+                cell.font = bold
+
+    def add(values: list, formats: list[str | None]) -> None:
+        ws.append([_xl(v) for v in values])
+        for col, fmt in enumerate(formats, start=1):
+            if fmt:
+                ws.cell(row=ws.max_row, column=col).number_format = fmt
+
+    cash = insights["cash_flow"]
+    section("Cash flow")
+    for label, key in [("Money in (IDR)", "money_in"), ("Total out (IDR)", "total_out"),
+                       ("Living spend (IDR)", "living_spend"), ("Transfers out (IDR)", "transfers_out"),
+                       ("Net (IDR)", "net")]:
+        add([label, cash[key]], [None, idr])
+    add(["Savings rate", cash["savings_rate"] if cash["savings_rate"] is not None else "-"], [None, pct])
+
+    budget = insights["budget_503020"]
+    basis = "money in" if budget["basis"] == "money_in" else "total out (no money in found)"
+    section("50/30/20 view", ["Bucket", "Amount (IDR)", "Share", "Guideline"])
+    for label, key in [("Needs (bills + transport)", "needs"), ("Wants (food + shopping)", "wants"),
+                       ("Savings (net)", "savings"), ("Transfers (unclassified)", "unclassified_transfers")]:
+        amount = budget[key]
+        share = budget["shares"][key]
+        target = budget["targets"].get(key)
+        add([label, amount if amount is not None else "-", share if share is not None else "-",
+             target if target is not None else "-"], [None, idr, pct, pct])
+    add([f"Shares of {basis}"], [None])
+
+    section("Top merchants by total", ["Merchant", "Count", "Total (IDR)", "Average (IDR)"])
+    for m in insights["top_merchants"]["by_total"]:
+        add([m["merchant"], m["count"], m["total"], m["avg"]], [None, None, idr, idr])
+
+    small = insights["small_spends"]
+    section("Small spends")
+    add([f"Under {format_idr(small['threshold'])}: count", small["count"]], [None, None])
+    add(["Small spends total (IDR)", small["total"]], [None, idr])
+    add(["Share of living spend", small["share_of_living"] if small["share_of_living"] is not None else "-"],
+        [None, pct])
+
+    fees = insights["fees"]
+    section("Fees")
+    add(["Fee count", fees["count"]], [None, None])
+    add(["Fees total (IDR)", fees["total"]], [None, idr])
+
+    section("Highlights", ["Highlight", "Impact (IDR)"])
+    for h in insights["highlights"]:
+        add([h["text"], h["impact_rp"]], [None, idr])
+
+    for col, width in zip("ABCD", (60, 16, 16, 16)):
+        ws.column_dimensions[col].width = width
+
+
+def report_xlsx(rows: list[Row], summary: Summary, insights: dict | None = None) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
@@ -183,6 +255,8 @@ def report_xlsx(rows: list[Row], summary: Summary) -> bytes:
         tx.column_dimensions[letter].width = _TX_WIDTHS.get(field, 12)
     tx.freeze_panes = "A2"
     tx.auto_filter.ref = tx.dimensions
+
+    _insights_sheet(wb, insights if insights is not None else compute_insights(rows))
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -248,7 +322,47 @@ _GRID = [
 ]
 
 
-def report_pdf(rows: list[Row], summary: Summary) -> bytes:
+def _highlights_story(insights: dict, styles, cell) -> list:
+    body = styles["BodyText"]
+    story = [Paragraph("Highlights", styles["Heading2"])]
+    if insights["highlights"]:
+        story += [Paragraph(f"{i}. {escape(h['text'])}", body) for i, h in enumerate(insights["highlights"], start=1)]
+    else:
+        story.append(Paragraph("Not enough amounts in this statement for highlights.", body))
+    story.append(Spacer(1, 3 * mm))
+
+    budget = insights["budget_503020"]
+    basis = "money in" if budget["basis"] == "money_in" else "total out (no money in found)"
+
+    def money(value):
+        return format_idr(value) if value is not None else "-"
+
+    def share(value):
+        return f"{value:.1%}" if value is not None else "-"
+
+    table = [["50/30/20 view", "Amount", f"Share of {basis}", "Guideline"]]
+    for label, key in [("Needs (bills + transport)", "needs"), ("Wants (food + shopping)", "wants"),
+                       ("Savings (net)", "savings"), ("Transfers (unclassified)", "unclassified_transfers")]:
+        table.append([label, money(budget[key]), share(budget["shares"][key]), share(budget["targets"].get(key))])
+    t = Table(table, colWidths=[50 * mm, 35 * mm, 50 * mm, 22 * mm], hAlign="LEFT")
+    t.setStyle(TableStyle(_GRID + [("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
+    story += [t, Spacer(1, 3 * mm)]
+
+    merchants = insights["top_merchants"]["by_total"]
+    if merchants:
+        rows = [["Top merchants by total", "Count", "Total", "Average"]] + [
+            [Paragraph(escape(m["merchant"]), cell), str(m["count"]), format_idr(m["total"]), format_idr(m["avg"])]
+            for m in merchants
+        ]
+        t = Table(rows, colWidths=[70 * mm, 20 * mm, 35 * mm, 32 * mm], hAlign="LEFT")
+        t.setStyle(TableStyle(_GRID + [("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
+        story += [t, Spacer(1, 2 * mm)]
+
+    story += [Paragraph(escape(insights["disclaimer"]), cell), Spacer(1, 6 * mm)]
+    return story
+
+
+def report_pdf(rows: list[Row], summary: Summary, insights: dict | None = None) -> bytes:
     styles = getSampleStyleSheet()
     body = styles["BodyText"]
     cell = body.clone("cell", fontName="Helvetica", fontSize=8, leading=10)
@@ -280,6 +394,7 @@ def report_pdf(rows: list[Row], summary: Summary) -> bytes:
     totals_table = Table(totals, colWidths=[45 * mm, 20 * mm, 40 * mm, 20 * mm], hAlign="LEFT")
     totals_table.setStyle(TableStyle(_GRID + [("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
     story += [Paragraph("Totals by category", styles["Heading2"]), totals_table, Spacer(1, 6 * mm)]
+    story += _highlights_story(insights if insights is not None else compute_insights(rows), styles, cell)
 
     tx = [["Date", "Description", "Amount", "Category", "Source"]] + [
         [

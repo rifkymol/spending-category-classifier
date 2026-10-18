@@ -144,12 +144,55 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 - [x] [PM] Tune the review threshold. The personal model stays local and gitignored. *(2026-10-19: decision is to keep 0.6 for now. The evidence is too thin to lower it, since CV within one month is optimistic. Re-test on the October statement as a true out-of-month check: upload it, count how many flagged rows the user had to change, then decide between 0.5 and 0.6. The PM restarted the dev API with `MODEL_PATH=models/personal.joblib`, and health reports `model: custom`.)*
 - [ ] [You] Next month: upload the October statement with the personal model, review it, export labels into `data/labels/`, and report back. The PM then retrains and runs the out-of-month check.
 
+## Phase 8a: spending insights from one statement (approved 2026-10-19)
+
+Goal: an **Insights** panel plus report highlights that turn one uploaded statement into savings/spending suggestions. Computed in memory from the (corrected) rows, using explainable statistics and rules, no stored data, and no financial or investment advice.
+
+**Design**
+- **One source of truth:** `backend/classifier/insights.py` holds a pure `compute_insights(rows)`. It's exposed as stateless `POST /api/insights {rows}`, with the same validation and caps as `/api/report`: 10 MB, 50k rows, 5 categories.
+  - `/api/classify` also returns initial `insights`, so the first render needs no extra call.
+  - The UI re-calls `/api/insights` (debounced) after edits, so corrections flow through.
+  - Reports call the same function.
+- **Metrics (each one returns the numbers behind it):**
+  1. **Cash flow:** money in (CR), total out (DB), net, savings rate = net / money in (null when there's no CR data, e.g. CSV). "Living spend" (excluding transfer) is shown separately from "transfers out", because transfer mixes savings and payments.
+  2. **Top merchants:** a merchant key derived from the cleaned description, minus BCA noise and reference numbers. Top 5 by total and top 5 by count, with average ticket size.
+  3. **Small-spend leaks:** DB rows under Rp 50,000 (a constant): count, total, share of living spend.
+  4. **Fees:** rows matching fee rules (`biaya adm`, admin/transfer fees): count and total.
+  5. **50/30/20 view:** needs = bills + transport, wants = food + shopping, as % of money in, with savings = net. Transfers are shown as "unclassified" and the mapping is listed in the UI. The mapping is a constant, easy to change later.
+  6. **Monthly normalization:** the period is from the min/max dates, and figures are scaled per month for the what-if.
+  7. **Highlights:** 3–5 rule-based sentences ranked by Rp impact, e.g. biggest category, a small-spend leak if > 15%, fees if > 0, savings rate. Each sentence cites its number. No product or investment suggestions.
+- **Frontend:** `Insights` panel under the chart.
+  - Cash-flow cards and a 50/30/20 bar.
+  - The top merchants list.
+  - Leak and fee callouts.
+  - **What-if sliders:** per category, 0–50% cut → Rp per month and per year, computed client-side from the insights numbers.
+  - A disclaimer: "Budgeting insights, not financial advice."
+- **Reports:** the PDF gets a "Highlights" section (sentences + 50/30/20 table); the Excel file gets an "Insights" sheet. CSV is unchanged.
+- **Privacy:** same rules as before. Nothing is stored; logs hold counts only, and merchant names never appear in logs. Tests enforce this.
+
+**Checklist**
+- [x] [You] Approve this plan and the defaults: Rp 50k small-spend threshold, needs = bills + transport, wants = food + shopping. *(2026-10-19: approved as-is, with transfers unclassified.)*
+- [x] [builder] `insights.py` + unit tests on synthetic rows: each metric, edge cases (no CR, no amounts, one row, all transfers).
+- [x] [builder] The `/api/insights` endpoint, `insights` in the classify response, validation, and privacy tests (no files, no merchant names or amounts in caplog).
+- [x] [builder] Frontend Insights panel with what-if sliders and the disclaimer; re-fetch after edits; lint/tsc/build clean.
+- [x] [builder] PDF highlights + Excel Insights sheet, with report tests.
+- [x] [builder] README features/screenshots note and a CHANGELOG v0.8.0 entry.
+- [x] [auditor] Verify the tests, endpoint behaviour, privacy tests and docs accuracy.
+- [x] [PM] Browser walkthrough with synthetic data; a masked real-statement check (prints only "sections present: True" and counts, no Rp figures); record; ask before commit.
+
+*Phase 8a verified 2026-10-19:*
+- *Auditor 9/9 checks, no fixes: 142 tests twice, and a hand-computed synthetic case matched every field.*
+- *Builder judgment calls, accepted: transfers are excluded from small spends and from top merchants; `months_factor` is clamped to ≥ 1 month; savings is null when there's no money in; what-if covers the 4 non-transfer categories; fewer than 3 highlights is possible on sparse data.*
+- *PM browser check (synthetic CSV): the panel renders; two "TOKO CONTOH JAYA" QR payments group as one merchant (2×); the food slider at 20% gives Rp 95.200/month and Rp 1.142.400/year (correct); changing INDIHOME bills → shopping re-fetches `/api/insights` and moves needs/wants by Rp 375.000. All requests went to 127.0.0.1 only.*
+- *Masked real-statement check (personal model): 98 rows; all 9 sections present; savings rate computed (basis money_in); 5+5 top merchants; 5 highlights; PDF and XLSX reports OK.*
+- *The dev servers were restarted on the new build; the API still uses `MODEL_PATH=models/personal.joblib`.*
+
 ## Portfolio polish
 
 - [x] [builder] Wrote the README landing page, PRIVACY.md, MIT LICENSE, CHANGELOG (v0.1–v0.7), CONTRIBUTING and `.github/workflows/ci.yml` (backend pytest; frontend lint → build → tsc; docker build; `contents: read`). *(2026-10-19)*
 - [x] [PM] Captured 4 screenshots with synthetic data only: upload, results, review (fake merchants) and a PDF report rendered from the synthetic model. *(2026-10-19)*
 - [x] [auditor] Docs accuracy + leak audit. Every claim matches the code, all cited tests exist, links resolve, the YAML parses, the license is right, 114 tests pass, and there are no leaks. The audit flagged that the README results table mixed accuracy bases; the table was fixed, and the 46% figure is traced to the 7b report (0.458). The other-project mentions were removed from `.claude/` files (older commits still contain the folder name). *(2026-10-19)*
-- [ ] [You] Approve commit + push. The first push triggers GitHub Actions CI, which hasn't been run on Linux yet.
+- [x] [You] Approve commit + push. The first push triggers GitHub Actions CI, which hasn't been run on Linux yet. *(2026-10-19: commit f45893b, 13 files, pushed; PM verified. First CI run 39151731131 passed all 3 jobs: backend tests, frontend lint/build/tsc and the Docker build. PM checked 2026-10-19.)*
 - [ ] [PM] Optional follow-up: a test that fails on `next/font` or external URLs in `frontend/src`, so the "no external assets" guarantee is enforced.
 
 ## Later

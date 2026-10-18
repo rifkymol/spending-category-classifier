@@ -3,12 +3,13 @@
 import { useState } from "react";
 import Upload from "@/components/Upload";
 import Results from "@/components/Results";
-import type { Row } from "@/lib/types";
+import type { Insights, Row } from "@/lib/types";
 
 // All data lives in this component's state only: nothing is written to browser storage or the URL.
 export default function Home() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [fileName, setFileName] = useState("");
+  const [insights, setInsights] = useState<Insights | null>(null);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
@@ -22,6 +23,7 @@ export default function Home() {
         <Upload
           onResult={(result, name) => {
             setRows(result.rows);
+            setInsights(result.insights ?? null);
             setFileName(name);
           }}
         />
@@ -29,9 +31,11 @@ export default function Home() {
         <Results
           rows={rows}
           fileName={fileName}
+          initialInsights={insights}
           onChange={setRows}
           onReset={() => {
             setRows(null);
+            setInsights(null);
             setFileName("");
           }}
         />

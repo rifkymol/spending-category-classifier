@@ -1,16 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CategoryChart from "./CategoryChart";
+import InsightsPanel from "./Insights";
 import TransactionsTable from "./TransactionsTable";
-import { REPORT_FORMATS, downloadReport, type ReportFormat } from "@/lib/api";
+import { REPORT_FORMATS, downloadReport, fetchInsights, type ReportFormat } from "@/lib/api";
 import { colorFor, formatIDR, formatPercent } from "@/lib/format";
 import { confirm, relabel, summarize } from "@/lib/summary";
-import type { Row } from "@/lib/types";
+import type { Insights, Row } from "@/lib/types";
 
 interface Props {
   rows: Row[];
   fileName: string;
+  /** Insights that came with the classify response, for the rows as uploaded. */
+  initialInsights: Insights | null;
   onChange: (rows: Row[]) => void;
   onReset: () => void;
 }
@@ -24,12 +27,40 @@ function Card({ label, value, tone = "default" }: { label: string; value: string
   );
 }
 
-export default function Results({ rows, fileName, onChange, onReset }: Props) {
+const INSIGHTS_DEBOUNCE_MS = 300;
+
+export default function Results({ rows, fileName, initialInsights, onChange, onReset }: Props) {
   const summary = useMemo(() => summarize(rows), [rows]);
   const hasAmounts = summary.total_amount > 0;
   const [format, setFormat] = useState<ReportFormat>("csv");
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [insights, setInsights] = useState<Insights | null>(initialInsights);
+  const [insightsStale, setInsightsStale] = useState(false);
+  const uploadedRows = useRef(rows);
+
+  // After a relabel or confirm, ask the API for fresh insights (debounced). A newer edit
+  // cancels the older request, so a stale response never overwrites a newer one.
+  // On error the last insights stay up with a small notice.
+  useEffect(() => {
+    if (rows === uploadedRows.current) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const next = await fetchInsights(rows, controller.signal);
+        if (!controller.signal.aborted) {
+          setInsights(next);
+          setInsightsStale(false);
+        }
+      } catch {
+        if (!controller.signal.aborted) setInsightsStale(true);
+      }
+    }, INSIGHTS_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [rows]);
 
   async function download() {
     setDownloading(true);
@@ -147,6 +178,8 @@ export default function Results({ rows, fileName, onChange, onReset }: Props) {
           </table>
         </section>
       </div>
+
+      {insights && <InsightsPanel insights={insights} stale={insightsStale} />}
 
       <TransactionsTable
         rows={rows}

@@ -31,7 +31,8 @@ Then open http://127.0.0.1:3000.
 - **Two-stage classifier:** keyword rules for well-known merchants, then a TF-IDF + logistic regression model for the rest.
 - **Review flags** on low-confidence rows (threshold 0.6), with a "Next to review" filter and one-click "Looks right".
 - **Editable categories**, a donut chart and per-category totals; money coming in is shown but not counted as spending.
-- **Reports** as CSV, Excel (summary sheet with a chart) or A4 PDF, all built in memory.
+- **Spending insights:** cash flow and savings rate, top merchants, small-spend and fee callouts, a 50/30/20 view and what-if sliders, updated as you correct categories.
+- **Reports** as CSV, Excel (summary sheet with a chart, plus an Insights sheet) or A4 PDF (with a Highlights section), all built in memory.
 - **Teach it your spending:** export your reviewed rows as labels and train a personal model from the CLI.
 - **Self-hosted and locked down:** localhost-only ports, read-only non-root containers, no outbound calls.
 
@@ -67,6 +68,20 @@ flowchart LR
 4. The rest go to a TF-IDF model (`char_wb`, n-grams 2–5) plus logistic regression. A prediction below 0.6 confidence is flagged for review.
 5. The UI shows the results; edits stay in the page. The report endpoint takes the corrected rows and streams back a file.
 6. Optionally, "Export labels" saves your reviewed rows as a CSV, which the CLI turns into a personal model loaded through `MODEL_PATH`.
+
+### Insights
+
+The Insights panel under the chart turns one statement into budgeting figures. Everything is computed in memory from the current rows by `backend/classifier/insights.py` (rule-based statistics, no AI), and recomputed through `POST /api/insights` whenever you correct a category.
+
+- **Cash flow:** money in (CR rows), total out, living spend (money out excluding transfers), transfers out, net, and the savings rate (net / money in; shown only when the statement has money-in rows, so not for CSV uploads).
+- **Top merchants:** the top 5 by total and by count, with the average payment. Names come from the cleaned description minus BCA boilerplate and reference numbers. Transfers are left out, since they are usually people.
+- **Small spends:** living-spend purchases under Rp 50,000, with their count, total and share of living spend.
+- **Fees:** rows matching bank fee phrases (`biaya adm`, `biaya transfer`, `biaya bi fast`, `admin fee`).
+- **50/30/20 view:** needs = bills + transport, wants = food + shopping, savings = net, as shares of money in (or of total out when there is no money in). Transfers are shown separately as unclassified, because they mix savings and payments.
+- **What-if sliders:** cut a category by 0–50% and see the saving per month and per year. Figures are scaled per month from the statement period; a statement shorter than a month counts as one month.
+- **Highlights:** 3–5 plain-English sentences ranked by Rupiah impact, also in the PDF report and the Excel Insights sheet.
+
+The defaults (the Rp 50,000 threshold and the needs/wants mapping) are constants at the top of `insights.py`. These are budgeting insights, not financial advice: the app never suggests financial products or investments.
 
 ### Design decisions
 
@@ -155,6 +170,7 @@ On startup the API trains a model in memory on the synthetic `data/sample_transa
 |---|---|
 | `GET /api/health` | `{"status": "ok", "model": "synthetic" or "custom"}` |
 | `POST /api/classify?threshold=0.6` | Body: a BCA e-statement PDF (`application/pdf`) or a CSV (`text/csv`, or `application/octet-stream`, which is treated as CSV unless it starts with `%PDF-`) with a `description` column (`date` and `amount` optional), max 5 MB. Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule` or `model`), plus per-category totals. |
+| `POST /api/insights` | Body: `{"rows": [...]}`, same as `/api/report` (same caps and validation). Returns the insights for those rows: cash flow, top merchants, small spends, fees, the 50/30/20 view, per-month figures and highlights. `/api/classify` includes the same `insights` for the uploaded rows. |
 | `POST /api/report?format=csv` | Body: `{"rows": [...]}` (rows from `/api/classify`, with any corrected `predicted`). `format` is `csv` (default), `xlsx` or `pdf`. Capped at 10 MB and 50,000 rows. Validation errors return 422 with field locations only, never the submitted rows. |
 
 ```bash
@@ -185,7 +201,7 @@ python backend/classify.py predict data/sample_transactions.csv --out data/predi
 .
 ├── backend/
 │   ├── app/              FastAPI app: main.py (endpoints), reports.py, schemas.py
-│   ├── classifier/       pipeline.py (clean, rules, model), bca.py, importers/bca_pdf.py
+│   ├── classifier/       pipeline.py (clean, rules, model), insights.py, bca.py, importers/bca_pdf.py
 │   ├── tests/            pytest suite and the synthetic BCA PDF fixture
 │   ├── classify.py       CLI: evaluate, train, predict
 │   ├── Dockerfile

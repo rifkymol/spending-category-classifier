@@ -1,5 +1,5 @@
 import { saveBlob } from "./download";
-import type { ClassifyResponse, Row } from "./types";
+import type { ClassifyResponse, Insights, Row } from "./types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
 export const MAX_BYTES = 5 * 1024 * 1024;
@@ -36,6 +36,17 @@ export async function classify(file: File): Promise<ClassifyResponse> {
     method: "POST",
     headers: { "Content-Type": isPdf(file) ? "application/pdf" : "text/csv" },
     body: file,
+  });
+  return res.json();
+}
+
+/** Insights for the current (possibly corrected) rows. Stateless on the server. */
+export async function fetchInsights(rows: Row[], signal?: AbortSignal): Promise<Insights> {
+  const res = await send("/api/insights", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+    signal,
   });
   return res.json();
 }
