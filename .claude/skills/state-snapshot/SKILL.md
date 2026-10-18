@@ -26,8 +26,13 @@ description: What is true about the spending-category-classifier project right n
 - **Phases 1–6 are done and verified (2026-10-18):** the classifier, the API, the UI, reports, Docker and the BCA e-statement PDF import.
 - The real September statement parses to 98 rows (83 DB, 15 CR), with totals matching the statement.
 - Next is Phase 7 (labeling and tuning). QR-merchant payments are mostly misclassified as `bills` by the synthetic-trained model: 48 of 98 rows need review.
-- The Docker images are stale (no pdfplumber) until rebuilt.
-- Phase 6 commit 39914e9 (21 files) is pushed; `main` = `origin/main`. The PM confirmed that no data/raw, PDF or helper file appears anywhere in git history (2026-10-18).
+- Phase 6 commit 39914e9 and Phase 7a commit 767b369 (15 files) are pushed; `main` = `origin/main`. The PM confirmed that no data/raw, PDF or helper file appears anywhere in git history (2026-10-18).
+- **Pinned and rebuilt (2026-10-18, PM verified, not committed yet):**
+  - Python direct deps use exact pins (pandas 3.0.6, scikit-learn 1.9.1, joblib 1.6.0, fastapi 0.143.3, uvicorn 0.54.0, openpyxl 3.1.5, reportlab 5.0.1, pdfplumber 0.11.10). `backend/requirements-runtime.lock` pins the full transitive closure (35 pins) and is used as `-c` in the Dockerfile.
+  - The base images are digest-pinned: python:3.13-slim@sha256:70729b46… and node:22-alpine@sha256:0a7108bf… (all 3 frontend stages).
+  - The images are rebuilt (api 757 MB, web 333 MB). The versions inside the api image match `.venv`.
+  - Spare-port checks (8200/3200) passed, including a synthetic BCA PDF upload inside the container.
+- The user is labeling the September statement in the app (PM dev servers on 127.0.0.1:3000/8000).
 
 ## Files in the repo
 

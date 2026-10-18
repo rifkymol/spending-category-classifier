@@ -1,6 +1,8 @@
 # FastAPI backend. Build from the repo root:
 #   docker build -f backend/Dockerfile .
-FROM python:3.13-slim
+# python:3.13-slim, pinned 2026-10-18. Update: docker pull python:3.13-slim, then
+# docker image inspect --format '{{index .RepoDigests 0}}' python:3.13-slim
+FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,9 +11,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Runtime deps only; pytest and httpx stay out of the image.
-COPY backend/requirements-runtime.txt /app/backend/requirements-runtime.txt
-RUN pip install -r /app/backend/requirements-runtime.txt
+# Runtime deps only; pytest and httpx stay out of the image. The lock file pins
+# every transitive dependency so builds are reproducible.
+COPY backend/requirements-runtime.txt backend/requirements-runtime.lock /app/backend/
+RUN pip install -r /app/backend/requirements-runtime.txt -c /app/backend/requirements-runtime.lock
 
 # App code plus the synthetic sample the default model trains on at startup
 # (main.py resolves it as /app/data/sample_transactions.csv).

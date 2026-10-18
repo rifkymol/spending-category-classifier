@@ -33,6 +33,13 @@ Then open http://127.0.0.1:3000.
 
 **Changing the API URL:** the browser calls the API directly, so its address is baked into the web bundle at build time through the `NEXT_PUBLIC_API_URL` build arg (default `http://127.0.0.1:8000`, set under `web.build.args` in `docker-compose.yml`). If you change it, or open the UI on another address than `http://127.0.0.1:3000` or `http://localhost:3000`, also add that UI origin to `ALLOWED_ORIGINS` in `backend/app/main.py` (CORS), then rebuild with `docker compose up --build`.
 
+**Updating pinned versions:** builds are reproducible because everything is pinned exactly.
+- *Base images:* each `FROM` line in `backend/Dockerfile` and `frontend/Dockerfile` pins a digest. To refresh, run `docker pull python:3.13-slim` (or `node:22-alpine`), read the new digest with `docker image inspect --format "{{index .RepoDigests 0}}" python:3.13-slim`, and replace the `@sha256:...` part (in all three `FROM` lines of the frontend file).
+- *Python packages:* `backend/requirements-runtime.txt` pins the direct dependencies and `backend/requirements-runtime.lock` pins the full transitive closure (used as a pip constraints file). To refresh, install the new versions in a local venv, run the tests, update the `==` pins, and regenerate the lock by walking `importlib.metadata` requirements from the direct dependencies (Linux / Python 3.13 markers, no extras), as its header describes.
+- *npm packages:* pinned in `frontend/package.json` and `frontend/package-lock.json`.
+
+Then rebuild with `docker compose build`.
+
 ## Run for development
 
 Run the API and the web UI as two local dev servers instead of containers. You need Python 3.10+ and Node.js 22.

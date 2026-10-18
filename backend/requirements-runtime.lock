@@ -1,0 +1,42 @@
+# Exact pins for the full runtime dependency closure (Linux, CPython 3.13).
+# Used as a pip constraints file by backend/Dockerfile:
+#   pip install -r requirements-runtime.txt -c requirements-runtime.lock
+# Generated 2026-10-18 from the working local .venv (Python 3.13.3) by a small
+# script that walks importlib.metadata requirements recursively from the direct
+# deps in requirements-runtime.txt, skipping extras and environment markers that
+# do not apply to Linux / Python 3.13. See README "Updating pinned versions".
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+cffi==2.1.1
+charset-normalizer==3.5.2
+click==8.5.0
+cloudpickle==3.1.2
+cryptography==50.0.2
+et_xmlfile==2.0.0
+fastapi==0.143.3
+h11==0.16.0
+idna==3.20
+joblib==1.6.0
+narwhals==2.27.1
+numpy==2.5.4
+openpyxl==3.1.5
+opentelemetry-api==1.45.1
+pandas==3.0.6
+pdfminer.six==20260107
+pdfplumber==0.11.10
+pillow==13.0.0
+pycparser==3.11
+pydantic==2.14.1
+pydantic_core==2.50.1
+pypdfium2==5.14.0
+python-dateutil==2.9.0.post0
+reportlab==5.0.1
+scikit-learn==1.9.1
+scipy==1.18.1
+six==1.17.0
+starlette==1.8.0
+threadpoolctl==3.7.0
+typing_extensions==4.16.0
+typing-inspection==0.4.4
+uvicorn==0.54.0

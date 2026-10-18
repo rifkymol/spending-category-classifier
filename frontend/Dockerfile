@@ -1,12 +1,16 @@
 # Next.js frontend (standalone output). Build from the repo root:
 #   docker build -f frontend/Dockerfile .
 
-FROM node:22-alpine AS deps
+# node:22-alpine, pinned 2026-10-18. Update: docker pull node:22-alpine, then
+# docker image inspect --format '{{index .RepoDigests 0}}' node:22-alpine
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS deps
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-FROM node:22-alpine AS build
+# node:22-alpine, pinned 2026-10-18. Update: docker pull node:22-alpine, then
+# docker image inspect --format '{{index .RepoDigests 0}}' node:22-alpine
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS build
 WORKDIR /app
 # The browser calls the API directly, so this URL is baked into the client
 # bundle at build time. Change it with a build arg (see README).
@@ -17,7 +21,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
 RUN npm run build
 
-FROM node:22-alpine AS runner
+# node:22-alpine, pinned 2026-10-18. Update: docker pull node:22-alpine, then
+# docker image inspect --format '{{index .RepoDigests 0}}' node:22-alpine
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
