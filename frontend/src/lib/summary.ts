@@ -53,7 +53,24 @@ export function summarize(rows: Row[]): Summary {
   };
 }
 
+/** Marks a row reviewed by the user: it no longer needs review, but remembers it was flagged. */
+const reviewed = (r: Row): Row => ({ ...r, needs_review: false, reviewed: true, was_flagged: r.was_flagged ?? r.needs_review });
+
 /** Returns a copy of rows with one row re-labelled by the user (no longer needs review). */
 export function relabel(rows: Row[], id: number, category: string): Row[] {
-  return rows.map((r) => (r.id === id ? { ...r, predicted: category, needs_review: false } : r));
+  return rows.map((r) => (r.id === id ? { ...reviewed(r), predicted: category } : r));
+}
+
+/** Returns a copy of rows with one row's category confirmed by the user, unchanged. */
+export function confirm(rows: Row[], id: number): Row[] {
+  return rows.map((r) => (r.id === id ? reviewed(r) : r));
+}
+
+/** Rows that needed review on arrival, whether or not they have been reviewed since. */
+export const isFlagged = (r: Row) => r.needs_review || r.was_flagged === true;
+
+/** Review progress over the flagged rows. */
+export function reviewProgress(rows: Row[]): { reviewed: number; flagged: number } {
+  const flagged = rows.filter(isFlagged);
+  return { reviewed: flagged.filter((r) => r.reviewed).length, flagged: flagged.length };
 }

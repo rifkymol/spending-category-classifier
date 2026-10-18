@@ -78,6 +78,7 @@ The classifier core and CLI live under `backend/`. Run these from the project ro
 pip install -r requirements.txt
 python backend/classify.py evaluate data/sample_transactions.csv   # cross-validated accuracy, rule coverage, review share
 python backend/classify.py train data/sample_transactions.csv      # saves backend/models/model.joblib
+python backend/classify.py train data/labels/*.csv --model models/personal.joblib   # see "Teach it your spending"
 python backend/classify.py predict data/sample_transactions.csv --out data/predictions.csv
 ```
 
@@ -140,6 +141,34 @@ The UI is a Next.js app in `frontend/`. It talks to the API above straight from 
 
 For a production build, use `npm run build` and then `npm run start`. Both servers bind to `127.0.0.1` only. Next.js telemetry is turned off in every npm script (`NEXT_TELEMETRY_DISABLED=1`), and the page loads no external fonts, CDNs or analytics. Uploaded data lives only in the page's memory; reloading or clicking "Start over" clears it. To point the UI at a different API address, copy `frontend/.env.example` to `frontend/.env.local` and set `NEXT_PUBLIC_API_URL`.
 
+## Teach it your spending
+
+The bundled model only knows 40 synthetic rows, so merchants without a keyword rule often get the wrong category. You can train a personal model on your own reviewed transactions. Everything happens on your machine: the labels file is built in your browser and saved by you, and training runs from the command line. The server never stores labels.
+
+1. Upload a statement in the web app and review it. Change a wrong category, or press **✓** ("Looks right") on a flagged row that is already correct. "Reviewed X of Y flagged" shows your progress, and the **Next to review** filter hides rows you have done. Then click **Export labels**. Your browser saves `labels-YYYY-MM-DD.csv` with the columns `date,description,amount,direction,category,label_source`.
+2. Create the labels folder and move the file into it:
+   ```bash
+   mkdir data/labels
+   ```
+3. Check how well a model does on your labels (metrics only, no descriptions are printed):
+   ```bash
+   .venv\Scripts\python backend/classify.py evaluate data/labels/*.csv
+   ```
+4. Train your personal model:
+   ```bash
+   .venv\Scripts\python backend/classify.py train data/labels/*.csv --model models/personal.joblib
+   ```
+5. Use it. For development, start the API with `MODEL_PATH=models/personal.joblib` (PowerShell: `$env:MODEL_PATH="models/personal.joblib"`). With Docker, uncomment the `environment` and `volumes` lines under `api` in `docker-compose.yml` and set `MODEL_PATH: /models/personal.joblib`.
+
+How the labels are used:
+
+- `label_source` is `user` (you changed or confirmed the row), `rule` (a keyword rule matched) or `model` (an unreviewed model guess). `train` and `evaluate` keep only `user` and `rule` rows and print how many `model` rows they dropped, so the model never learns from its own unchecked guesses.
+- `train` takes several files (add a new export each month) and also includes the synthetic sample unless you pass `--no-synthetic`. It prints row counts per category, never descriptions.
+- `evaluate` leaves categories with fewer than 2 rows out of cross-validation with a warning (`--min-per-class` raises the bar).
+- Wildcards such as `data/labels/*.csv` work in PowerShell and cmd too; the CLI expands them itself.
+
+`data/labels/`, `models/` and `*.joblib` are gitignored and excluded from the Docker build. Your labels and personal model never leave your machine.
+
 ## Privacy
 
 Bank statements are sensitive, so the app is built to keep them on your machine and out of storage.
@@ -149,7 +178,7 @@ Bank statements are sensitive, so the app is built to keep them on your machine 
 - **Only localhost ports.** The ports are published as `127.0.0.1:3000` and `127.0.0.1:8000`, so only your own computer can reach the app, not other devices on your network. The dev servers also bind to `127.0.0.1`.
 - **No analytics, telemetry or outbound calls.** The app loads no external fonts, CDNs or trackers, and Next.js telemetry is off (`NEXT_TELEMETRY_DISABLED=1`) in the image and in every npm script. The only downloads happen while *building* the images (base images and packages); the running app talks to nothing outside your machine.
 - **Logs hold no transaction data.** The API logs only method, path, status, duration and row count, never descriptions or amounts.
-- **The bundled model is synthetic only.** By default the API trains at startup on `data/sample_transactions.csv`, 40 made-up rows. Your own model and labels stay local and are gitignored (`models/`, `*.joblib`) and excluded from the Docker build (`.dockerignore`), as is `data/` apart from the sample.
+- **The bundled model is synthetic only.** By default the API trains at startup on `data/sample_transactions.csv`, 40 made-up rows. Your own model and labels stay local and are gitignored (`data/labels/`, `models/`, `*.joblib`) and excluded from the Docker build (`.dockerignore`), as is `data/` apart from the sample.
 
 **Check it yourself:**
 

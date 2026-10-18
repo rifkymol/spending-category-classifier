@@ -26,7 +26,8 @@ description: What is true about the spending-category-classifier project right n
 - **Phases 1–6 are done and verified (2026-10-18):** the classifier, the API, the UI, reports, Docker and the BCA e-statement PDF import.
 - The real September statement parses to 98 rows (83 DB, 15 CR), with totals matching the statement.
 - Next is Phase 7 (labeling and tuning). QR-merchant payments are mostly misclassified as `bills` by the synthetic-trained model: 48 of 98 rows need review.
-- The Docker images are stale (no pdfplumber) until rebuilt. Phase 6 is not committed yet.
+- The Docker images are stale (no pdfplumber) until rebuilt.
+- Phase 6 commit 39914e9 (21 files) is pushed; `main` = `origin/main`. The PM confirmed that no data/raw, PDF or helper file appears anywhere in git history (2026-10-18).
 
 ## Files in the repo
 

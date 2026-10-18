@@ -126,7 +126,14 @@ Owner tags: **[You]** the user, **[builder]** and **[auditor]** the worker agent
 
 ## Phase 7: labeling and tuning
 
-- [ ] [You] Label ~200 rows.
+- [x] [builder] Labeling tools and personal training (7a).
+  - UI: a ✓ "Looks right" button, "Reviewed X of Y flagged", a "Next to review" filter, and a client-side **Export labels** (CSV Blob with an injection-safe `csv.ts`, never sent to the API) with `label_source` user/rule/model.
+  - CLI: `train`/`evaluate` take several CSVs and drop `model` rows; `--with/--no-synthetic`; CV skips categories with fewer than 2 rows.
+  - Public chain merchant rules added; transfer still last.
+  - `data/labels/` is gitignored.
+  - *Verified 2026-10-18: auditor 11/11 checks passed (114 tests twice; lint/tsc/build; export makes no fetch; CSV escaping; the label filter drops 10/10 model rows; rule ordering incl. "toleransi" ≠ tol). PM browser check on 127.0.0.1:3000 with a made-up CSV: ✓ and edit update "Reviewed 2 of 3" and Need review 3→1; the HokBen rule hits.*
+  - *Ports stay 3000/8000 by user decision. The user's other dev server (fe-sales-evaluation) was stopped on request.*
+- [ ] [You] Label ~200 rows. Start with the September statement (98 rows) in the app, then use Export labels and move the file to `data/labels/`.
 - [ ] [auditor] Run `evaluate` on the labeled set.
 - [ ] [PM] Tune the review threshold. The personal model stays local and gitignored.
 

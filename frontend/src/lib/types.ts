@@ -14,6 +14,10 @@ export interface Row {
   confidence: number;
   needs_review: boolean;
   source: "rule" | "model";
+  /** Client-only: a person changed or confirmed this row's category. */
+  reviewed?: boolean;
+  /** Client-only: the row needed review when it arrived (kept after review clears needs_review). */
+  was_flagged?: boolean;
 }
 
 export interface CategoryTotal {

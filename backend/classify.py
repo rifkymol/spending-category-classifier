@@ -3,11 +3,14 @@
 Usage (from the project root):
     python backend/classify.py evaluate data/sample_transactions.csv
     python backend/classify.py train data/sample_transactions.csv
+    python backend/classify.py evaluate data/labels/*.csv
+    python backend/classify.py train data/labels/*.csv --model models/personal.joblib
     python backend/classify.py predict data/sample_transactions.csv --out data/predictions.csv
     python backend/classify.py predict path/to/bca-estatement.pdf --out data/predictions.csv
 """
 
 import argparse
+import glob
 import sys
 from pathlib import Path
 
@@ -22,21 +25,81 @@ from classifier.importers import parse_bca_pdf, statement_frame
 BACKEND_DIR = Path(__file__).resolve().parent
 DEFAULT_MODEL = BACKEND_DIR / "models" / "model.joblib"
 DEFAULT_OUT = BACKEND_DIR.parent / "data" / "predictions.csv"
+SAMPLE_CSV = BACKEND_DIR.parent / "data" / "sample_transactions.csv"
+
+# Rows exported from the web app carry a label_source. Only rows a person confirmed or
+# corrected ("user") or a keyword rule matched ("rule") are labels; "model" rows are
+# unreviewed guesses and would teach the model its own mistakes.
+TRUSTED_LABEL_SOURCES = {"user", "rule"}
 
 
-def load_labeled(path) -> pd.DataFrame:
+def expand_paths(patterns) -> list[Path]:
+    """Expand wildcards ourselves: Windows shells pass data/labels/*.csv through as-is."""
+    paths = []
+    for pattern in patterns:
+        if glob.has_magic(pattern):
+            matches = sorted(glob.glob(pattern))
+            if not matches:
+                raise ValueError(f"No files match {pattern}")
+            paths.extend(Path(m) for m in matches)
+        else:
+            paths.append(Path(pattern))
+    return paths
+
+
+def load_labeled_file(path) -> tuple[pd.DataFrame, int]:
+    """One labeled CSV, minus rows without a category or with an untrusted label_source.
+
+    Returns the rows and how many were dropped for their label_source.
+    """
     df = load_transactions(path)
     if "category" not in df.columns:
-        raise ValueError("Labeled CSV must have a 'category' column.")
-    return df[df["category"].notna()].reset_index(drop=True)
+        raise ValueError(f"Labeled CSV must have a 'category' column: {path}")
+    df = df[df["category"].notna()]
+    dropped = 0
+    if "label_source" in df.columns:
+        trusted = df["label_source"].isin(TRUSTED_LABEL_SOURCES)
+        dropped = int((~trusted).sum())
+        df = df[trusted]
+    return df, dropped
+
+
+def load_labeled(paths, with_synthetic: bool = False) -> pd.DataFrame:
+    """Concatenate labeled CSVs (optionally plus the synthetic sample) and print counts only."""
+    paths = expand_paths([str(p) for p in paths])
+    if with_synthetic and SAMPLE_CSV.resolve() not in {p.resolve() for p in paths}:
+        paths.append(SAMPLE_CSV)
+    frames, dropped = [], 0
+    for path in paths:
+        df, n = load_labeled_file(path)
+        frames.append(df)
+        dropped += n
+    df = pd.concat(frames, ignore_index=True)
+    if dropped:
+        print(f"Dropped {dropped} unreviewed rows (label_source not user or rule)")
+    if df.empty:
+        raise ValueError("No labeled rows to use.")
+    return df
+
+
+def print_category_counts(df: pd.DataFrame) -> None:
+    for category, count in df["category"].value_counts().sort_index().items():
+        print(f"  {category:<12}{count:>6}")
 
 
 def evaluate(args) -> None:
     df = load_labeled(args.csv)
-    smallest = int(df["category"].value_counts().min())
-    n_splits = min(5, smallest)
-    if n_splits < 2:
-        raise ValueError("Every category needs at least 2 labeled rows for cross-validation.")
+    min_per_class = max(2, args.min_per_class)
+    counts = df["category"].value_counts()
+    too_small = counts[counts < min_per_class]
+    if len(too_small):
+        skipped = ", ".join(f"{c} ({n})" for c, n in too_small.sort_index().items())
+        print(f"Warning: skipping categories with fewer than {min_per_class} rows from CV: {skipped}")
+        df = df[~df["category"].isin(too_small.index)].reset_index(drop=True)
+        counts = counts.drop(too_small.index)
+    if len(counts) < 2:
+        raise ValueError(f"Cross-validation needs at least 2 categories with {min_per_class} or more rows.")
+    n_splits = min(5, int(counts.min()))
 
     cleaned = df["description"].map(clean_description)
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0)
@@ -65,12 +128,15 @@ def evaluate(args) -> None:
 
 
 def train(args) -> None:
-    df = load_labeled(args.csv)
+    df = load_labeled(args.csv, with_synthetic=args.synthetic)
+    if df["category"].nunique() < 2:
+        raise ValueError("Training needs at least 2 categories.")
     model = build_model().fit(df["description"].map(clean_description), df["category"])
     model_path = Path(args.model)
     model_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, model_path)
     print(f"Trained on {len(df)} rows ({df['category'].nunique()} categories)")
+    print_category_counts(df)
     print(f"Saved model to {model_path}")
 
 
@@ -96,14 +162,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Spending category classifier")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("evaluate", help="cross-validate on a labeled CSV")
-    p.add_argument("csv")
+    p = sub.add_parser("evaluate", help="cross-validate on one or more labeled CSVs")
+    p.add_argument("csv", nargs="+")
     p.add_argument("--threshold", type=float, default=CONFIDENCE_THRESHOLD)
+    p.add_argument(
+        "--min-per-class", type=int, default=2,
+        help="leave categories with fewer labeled rows out of CV (at least 2)",
+    )
     p.set_defaults(func=evaluate)
 
-    p = sub.add_parser("train", help="fit on all labeled rows and save the model")
-    p.add_argument("csv")
+    p = sub.add_parser("train", help="fit on all labeled rows of one or more CSVs and save the model")
+    p.add_argument("csv", nargs="+")
     p.add_argument("--model", default=str(DEFAULT_MODEL))
+    synthetic = p.add_mutually_exclusive_group()
+    synthetic.add_argument(
+        "--with-synthetic", dest="synthetic", action="store_true", default=True,
+        help="also train on data/sample_transactions.csv (default)",
+    )
+    synthetic.add_argument("--no-synthetic", dest="synthetic", action="store_false")
     p.set_defaults(func=train)
 
     p = sub.add_parser("predict", help="classify a CSV (no category column needed) or a BCA e-statement PDF")

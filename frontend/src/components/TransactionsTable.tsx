@@ -1,24 +1,36 @@
 "use client";
 
 import { useState } from "react";
+import { labelsCsv, labelsFileName } from "@/lib/csv";
+import { saveBlob } from "@/lib/download";
 import { formatIDR, formatPercent } from "@/lib/format";
-import { isMoneyIn } from "@/lib/summary";
+import { isFlagged, isMoneyIn, reviewProgress } from "@/lib/summary";
 import { CATEGORIES, type Row } from "@/lib/types";
 
 interface Props {
   rows: Row[];
   onRelabel: (id: number, category: string) => void;
+  onConfirm: (id: number) => void;
 }
 
-type Filter = "all" | "review";
+type Filter = "all" | "review" | "next";
 
-export default function TransactionsTable({ rows, onRelabel }: Props) {
+/** Built in the browser and saved locally; the labels never go to the API. */
+function exportLabels(rows: Row[]) {
+  saveBlob(new Blob([labelsCsv(rows)], { type: "text/csv;charset=utf-8" }), labelsFileName());
+}
+
+export default function TransactionsTable({ rows, onRelabel, onConfirm }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
-  const reviewCount = rows.filter((r) => r.needs_review).length;
-  const shown = filter === "review" ? rows.filter((r) => r.needs_review) : rows;
+  const progress = reviewProgress(rows);
+  const remaining = progress.flagged - progress.reviewed;
+  // "Needs review" keeps reviewed rows visible so they can be revisited; "Next to review" hides them.
+  const shown =
+    filter === "review" ? rows.filter(isFlagged) : filter === "next" ? rows.filter((r) => r.needs_review) : rows;
   const filters: [Filter, string][] = [
     ["all", `All (${rows.length})`],
-    ["review", `Needs review (${reviewCount})`],
+    ["review", `Needs review (${progress.flagged})`],
+    ["next", `Next to review (${remaining})`],
   ];
 
   return (
@@ -28,7 +40,9 @@ export default function TransactionsTable({ rows, onRelabel }: Props) {
           <h2 id="tx-heading" className="font-semibold">
             Transactions
           </h2>
-          <p className="text-sm text-slate-600">Change a category to correct it. Corrected rows no longer need review.</p>
+          <p className="text-sm text-slate-600">
+            Change a category to correct it, or press ✓ if it looks right. Reviewed rows no longer need review.
+          </p>
         </div>
         <fieldset className="flex self-start rounded-lg border border-slate-300 p-0.5 text-sm sm:self-auto">
           <legend className="sr-only">Show</legend>
@@ -53,8 +67,35 @@ export default function TransactionsTable({ rows, onRelabel }: Props) {
         </fieldset>
       </div>
 
+      <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-700" aria-live="polite">
+          {progress.flagged === 0 ? (
+            "Nothing was flagged for review."
+          ) : (
+            <>
+              Reviewed <span className="font-medium tabular-nums">{progress.reviewed}</span> of{" "}
+              <span className="font-medium tabular-nums">{progress.flagged}</span> flagged
+            </>
+          )}
+        </p>
+        <div className="flex flex-col gap-1 sm:items-end">
+          <button
+            type="button"
+            onClick={() => exportLabels(rows)}
+            className="self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 sm:self-auto"
+          >
+            Export labels
+          </button>
+          <p className="text-xs text-slate-600">
+            Saved to your computer only. Put it in <code>data/labels/</code> to train your personal model.
+          </p>
+        </div>
+      </div>
+
       {shown.length === 0 ? (
-        <p className="p-5 text-sm text-slate-600">No transactions need review.</p>
+        <p className="p-5 text-sm text-slate-600">
+          {filter === "next" && progress.flagged > 0 ? "All flagged rows are reviewed." : "No transactions need review."}
+        </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
@@ -84,11 +125,16 @@ export default function TransactionsTable({ rows, onRelabel }: Props) {
                         Review
                       </span>
                     )}
+                    {r.reviewed && (
+                      <span className="ml-2 inline-block rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800">
+                        Reviewed
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums">
                     {r.amount === null ? "—" : `${isMoneyIn(r) ? "+" : ""}${formatIDR(r.amount)}`}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="whitespace-nowrap px-4 py-2">
                     <label className="sr-only" htmlFor={`cat-${r.id}`}>
                       Category for {r.description}
                     </label>
@@ -107,6 +153,17 @@ export default function TransactionsTable({ rows, onRelabel }: Props) {
                         </option>
                       ))}
                     </select>
+                    {r.needs_review && (
+                      <button
+                        type="button"
+                        onClick={() => onConfirm(r.id)}
+                        aria-label={`Looks right: keep ${r.predicted} for ${r.description}`}
+                        title="Looks right"
+                        className="ml-2 rounded-md border border-emerald-300 bg-white px-2 py-1 font-medium text-emerald-800 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-blue-700"
+                      >
+                        <span aria-hidden="true">✓</span>
+                      </button>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums">{formatPercent(r.confidence)}</td>
                   <td className="px-4 py-2 text-slate-700">{r.source}</td>

@@ -1,3 +1,4 @@
+import { saveBlob } from "./download";
 import type { ClassifyResponse, Row } from "./types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
@@ -52,12 +53,5 @@ export async function downloadReport(rows: Row[], format: ReportFormat = "csv"):
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rows }),
   });
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `spending-report.${format}`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  saveBlob(await res.blob(), `spending-report.${format}`);
 }

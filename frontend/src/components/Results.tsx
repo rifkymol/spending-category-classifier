@@ -5,7 +5,7 @@ import CategoryChart from "./CategoryChart";
 import TransactionsTable from "./TransactionsTable";
 import { REPORT_FORMATS, downloadReport, type ReportFormat } from "@/lib/api";
 import { colorFor, formatIDR, formatPercent } from "@/lib/format";
-import { relabel, summarize } from "@/lib/summary";
+import { confirm, relabel, summarize } from "@/lib/summary";
 import type { Row } from "@/lib/types";
 
 interface Props {
@@ -148,7 +148,11 @@ export default function Results({ rows, fileName, onChange, onReset }: Props) {
         </section>
       </div>
 
-      <TransactionsTable rows={rows} onRelabel={(id, category) => onChange(relabel(rows, id, category))} />
+      <TransactionsTable
+        rows={rows}
+        onRelabel={(id, category) => onChange(relabel(rows, id, category))}
+        onConfirm={(id) => onChange(confirm(rows, id))}
+      />
     </div>
   );
 }

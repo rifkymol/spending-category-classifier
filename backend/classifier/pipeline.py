@@ -23,10 +23,32 @@ from .bca import normalize_bca
 # find new merchants. "transfer" comes last so a merchant wins over transfer words, e.g. a
 # QR payment or e-banking transfer to KFC is still food.
 RULES = {
-    "food": ["grab food", "gofood", "go food", "mcd", "kfc", "kopi kenangan", "starbucks", "padang"],
-    "transport": ["grab ride", "grab car", "gojek", "go ride", "mrt", "transjakarta", "shell", "pertamina"],
-    "shopping": ["shopee", "tokopedia", "lazada", "blibli", "tiktok shop"],
-    "bills": ["pln", "indihome", "telkomsel", "pdam", "bpjs", "netflix", "spotify", "biaya adm", "biaya administrasi"],
+    "food": [
+        "grab food", "gofood", "go food", "mcd", "kfc", "kopi kenangan", "starbucks", "padang",
+        "hokben", "solaria", "richeese", "chatime", "janji jiwa", "fore coffee", "point coffee",
+        "mie gacoan", "bakmi gm", "pizza hut", "domino", "burger king", "wendy", "chagee", "mixue",
+        "es teh indonesia", "haus",
+        # Generic food words. They can false-match, but only on food-ish names.
+        "sate", "warung", "warteg", "nasi", "ayam", "bakso", "mie ayam", "kopi", "cafe", "resto",
+        "restoran", "bakery",
+    ],
+    "transport": [
+        "grab ride", "grab car", "gojek", "go ride", "mrt", "transjakarta", "shell", "pertamina",
+        "bluebird", "krl", "kai", "commuter", "parkir", "tol", "e toll", "spbu", "maxim", "indriver",
+    ],
+    # Convenience stores sell food too, but most visits are mixed baskets, so they count as shopping.
+    "shopping": [
+        "shopee", "tokopedia", "lazada", "blibli", "tiktok shop",
+        "indomaret", "alfamart", "alfamidi", "superindo", "hypermart", "transmart", "lotte mart",
+        "guardian", "watsons", "uniqlo", "ace hardware", "informa", "ikea", "gramedia", "miniso",
+        "matahari",
+    ],
+    "bills": [
+        "pln", "listrik", "indihome", "telkomsel", "pdam", "bpjs", "netflix", "spotify",
+        "biaya adm", "biaya administrasi",
+        "first media", "biznet", "myrepublic", "xl", "indosat", "smartfren", "by u", "axis",
+        "youtube", "google", "apple com", "icloud", "disney", "vidio",
+    ],
     "transfer": [
         "trsf e banking", "transfer", "bi fast", "bifast", "tarik tunai", "setor tunai",
         "kr otomatis", "kredit otomatis", "switching",

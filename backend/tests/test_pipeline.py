@@ -141,3 +141,132 @@ def test_cli_predict_pdf(tmp_path):
     result = pd.read_csv(out_path)
     assert len(result) == len(EXPECTED)
     assert list(result["direction"]) == [e[3] for e in EXPECTED]
+
+
+# ---- Public merchant rules (Phase 7) --------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # QR payments carry no transfer words, but e-banking ones do; the merchant must win.
+        ("TRANSAKSI DEBIT TGL: 01/09 QR 936000000000000001 INDOMARET CIPUTAT", "shopping"),
+        ("TRSF E-BANKING DB 0309 ALFAMART", "shopping"),
+        ("TRANSAKSI DEBIT TGL: 02/09 QR 936000000000000002 MIE GACOAN", "food"),
+        ("BI-FAST TRANSFER JANJI JIWA", "food"),
+        ("TRANSAKSI DEBIT TGL: 03/09 QR 936000000000000003 WARTEG BAHARI", "food"),
+        ("E-TOLL TOPUP", "transport"),
+        ("SPBU 3412", "transport"),
+        ("KRL COMMUTER LINE", "transport"),
+        ("APPLE.COM/BILL", "bills"),
+        ("TRSF E-BANKING DB BPJS KESEHATAN", "bills"),
+        ("GOOGLE YOUTUBE PREMIUM", "bills"),
+    ],
+)
+def test_public_merchant_rules(text, expected):
+    assert apply_rules(clean_description(text)) == expected
+
+
+@pytest.mark.parametrize("text", ["TOLONG BAYAR", "HOTEL SATELIT", "KAIROS STUDIO"])
+def test_short_rules_need_whole_words(text):
+    assert apply_rules(clean_description(text)) is None
+
+
+def test_synthetic_rule_matches_agree_with_labels():
+    df = load_transactions(SAMPLE)
+    rules = df["description"].map(lambda d: apply_rules(clean_description(d)))
+    hit = rules.notna()
+    assert (rules[hit] == df.loc[hit, "category"]).all()
+
+
+# ---- Training and evaluating on personal labels (Phase 7) -----------------
+
+
+def _labels_csv(path, rows):
+    pd.DataFrame(rows, columns=["date", "description", "amount", "direction", "category", "label_source"]).to_csv(
+        path, index=False
+    )
+    return path
+
+
+@pytest.fixture
+def label_files(tmp_path):
+    a = _labels_csv(
+        tmp_path / "labels-2026-09-30.csv",
+        [
+            ["2026-09-01", "QR WARUNG BU TINI", 15000, "DB", "food", "user"],
+            ["2026-09-02", "QR TOKO ABC", 20000, "DB", "shopping", "user"],
+            ["2026-09-03", "QR UNKNOWN MERCHANT", 30000, "DB", "bills", "model"],
+            ["2026-09-04", "GRAB CAR 1", 25000, "DB", "transport", "rule"],
+        ],
+    )
+    b = _labels_csv(
+        tmp_path / "labels-2026-10-31.csv",
+        [
+            ["2026-10-01", "QR KEDAI SENJA", 18000, "DB", "food", "user"],
+            ["2026-10-02", "QR MYSTERY", 40000, "DB", "bills", "model"],
+        ],
+    )
+    return a, b
+
+
+def test_train_multiple_files_drops_model_rows(tmp_path, label_files, capsys):
+    model_path = tmp_path / "personal.joblib"
+    assert cli.main(["train", *map(str, label_files), "--no-synthetic", "--model", str(model_path)]) == 0
+    out = capsys.readouterr().out
+    assert "Dropped 2 unreviewed rows" in out
+    assert "Trained on 4 rows (3 categories)" in out
+    assert model_path.exists()
+    # Counts only, never descriptions.
+    assert "WARUNG" not in out.upper() and "KEDAI" not in out.upper()
+
+
+def test_train_with_synthetic_is_default(tmp_path, label_files, capsys):
+    model_path = tmp_path / "personal.joblib"
+    assert cli.main(["train", *map(str, label_files), "--model", str(model_path)]) == 0
+    n_sample = len(pd.read_csv(SAMPLE))
+    assert f"Trained on {4 + n_sample} rows (5 categories)" in capsys.readouterr().out
+
+
+def test_train_does_not_add_sample_twice(tmp_path, capsys):
+    assert cli.main(["train", str(SAMPLE), "--model", str(tmp_path / "m.joblib")]) == 0
+    assert f"Trained on {len(pd.read_csv(SAMPLE))} rows" in capsys.readouterr().out
+
+
+def test_train_expands_wildcards(tmp_path, label_files, capsys):
+    pattern = str(tmp_path / "labels-*.csv")
+    assert cli.main(["train", pattern, "--no-synthetic", "--model", str(tmp_path / "m.joblib")]) == 0
+    assert "Trained on 4 rows" in capsys.readouterr().out
+    assert cli.main(["train", str(tmp_path / "nothing-*.csv"), "--model", str(tmp_path / "m.joblib")]) == 1
+
+
+def test_train_only_model_rows_fails_cleanly(tmp_path, capsys):
+    path = _labels_csv(tmp_path / "l.csv", [["2026-09-01", "QR X", 1, "DB", "bills", "model"]])
+    assert cli.main(["train", str(path), "--no-synthetic", "--model", str(tmp_path / "m.joblib")]) == 1
+    assert not (tmp_path / "m.joblib").exists()
+
+
+def test_evaluate_multiple_files_with_tiny_class(tmp_path, capsys):
+    rows = [["2026-09-01", f"QR WARUNG {i}", 1000, "DB", "food", "user"] for i in range(4)]
+    rows += [["2026-09-02", f"TRSF E-BANKING DB {i} BUDI", 1000, "DB", "transfer", "rule"] for i in range(4)]
+    rows += [["2026-09-03", "QR TOKO SATU", 1000, "DB", "shopping", "user"]]  # only one row
+    rows += [["2026-09-04", "QR GUESS", 1000, "DB", "bills", "model"]]  # dropped
+    a = _labels_csv(tmp_path / "a.csv", rows[:5])
+    b = _labels_csv(tmp_path / "b.csv", rows[5:])
+    assert cli.main(["evaluate", str(a), str(b)]) == 0
+    out = capsys.readouterr().out
+    assert "Dropped 1 unreviewed rows" in out
+    assert "skipping categories with fewer than 2 rows from CV: shopping (1)" in out
+    assert "Rows: 8, 4-fold" in out
+    assert "WARUNG" not in out.upper()
+
+
+def test_evaluate_min_per_class(tmp_path, capsys):
+    assert cli.main(["evaluate", str(SAMPLE), "--min-per-class", "9"]) == 0
+    out = capsys.readouterr().out
+    assert "fewer than 9 rows" in out
+
+
+def test_evaluate_needs_two_categories(tmp_path, capsys):
+    rows = [["2026-09-01", f"QR WARUNG {i}", 1000, "DB", "food", "user"] for i in range(3)]
+    assert cli.main(["evaluate", str(_labels_csv(tmp_path / "a.csv", rows))]) == 1

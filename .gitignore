@@ -1,5 +1,6 @@
 # Real bank statements and model outputs stay local
 data/raw/
+data/labels/
 data/predictions.csv
 *.pkl
 __pycache__/
