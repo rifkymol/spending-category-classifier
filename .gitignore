@@ -1,0 +1,8 @@
+# Real bank statements and model outputs stay local
+data/raw/
+data/predictions.csv
+*.pkl
+__pycache__/
+.venv/
+models/
+*.joblib
