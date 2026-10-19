@@ -45,3 +45,9 @@ export const DownloadIcon = (p: Props) => (
     <path d="M4 16.5h12" />
   </svg>
 );
+
+export const CloseIcon = (p: Props) => (
+  <svg {...base} {...p}>
+    <path d="m5.5 5.5 9 9M14.5 5.5l-9 9" />
+  </svg>
+);

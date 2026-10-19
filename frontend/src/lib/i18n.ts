@@ -57,6 +57,12 @@ export function formatNumber(value: number, locale: Locale): string {
   return new Intl.NumberFormat(INTL_LOCALE[locale]).format(value);
 }
 
+/** 6_912_345 → "Rp 6.9M" (en) or "Rp 6,9 jt" (id): a short Rupiah figure for tight spots. */
+export function formatCompactIDR(value: number, locale: Locale): string {
+  const short = new Intl.NumberFormat(INTL_LOCALE[locale], { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return `Rp ${short}`;
+}
+
 /** 0.125 → "12.5%" (en) or "12,5%" (id). */
 export function formatPercent(share: number, locale: Locale, digits = 1): string {
   return new Intl.NumberFormat(INTL_LOCALE[locale], {
@@ -96,6 +102,7 @@ function bind(locale: Locale) {
     tc: (key: PluralKey, count: number, vars?: Vars) => translateCount(locale, key, count, vars),
     rich: (key: MessageKey, nodes: Record<string, ReactNode>) => translateRich(locale, key, nodes),
     number: (value: number) => formatNumber(value, locale),
+    compactIDR: (value: number) => formatCompactIDR(value, locale),
     percent: (share: number, digits?: number) => formatPercent(share, locale, digits),
     date: (value: string | null, withYear?: boolean) => formatDate(value, locale, withYear),
     category: (category: string) => categoryName(category, locale),

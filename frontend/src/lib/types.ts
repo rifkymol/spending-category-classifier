@@ -47,6 +47,16 @@ export interface Merchant {
   avg: number;
 }
 
+/** A transfer counterparty grouped from the descriptions (backend transfer_key). share is of
+ * transfers out (out_*) or of money in (in_by_total); null when that total is 0. */
+export interface TransferParty {
+  name: string;
+  count: number;
+  total: number;
+  avg: number;
+  share: number | null;
+}
+
 export interface Insights {
   cash_flow: {
     money_in: number;
@@ -61,6 +71,8 @@ export interface Insights {
     savings_rate: number | null;
   };
   top_merchants: { by_total: Merchant[]; by_count: Merchant[] };
+  /** Transfers by counterparty: rent, debt, family and donations stay trackable. */
+  top_transfers: { out_by_total: TransferParty[]; out_by_count: TransferParty[]; in_by_total: TransferParty[] };
   small_spends: { threshold: number; count: number; total: number; share_of_living: number | null };
   fees: { count: number; total: number };
   budget_503020: {

@@ -48,6 +48,68 @@
       transform: none;
     }
   }
+  /* The category details panel: a bottom sheet on phones, a side panel from the right from sm up. */
+  --animate-backdrop-in: backdrop-in 200ms ease-out both;
+  --animate-backdrop-out: backdrop-out 180ms ease-in both;
+  --animate-sheet-in: sheet-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-sheet-out: sheet-out 180ms ease-in both;
+  --animate-panel-in: panel-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-panel-out: panel-out 180ms ease-in both;
+  /* A row relabelled away from the open category. */
+  --animate-row-out: row-out 220ms ease-in both;
+
+  @keyframes backdrop-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes panel-in {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes backdrop-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes sheet-out {
+    to {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes panel-out {
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes row-out {
+    from {
+      opacity: 1;
+      max-height: 12rem;
+    }
+    to {
+      opacity: 0;
+      max-height: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      border-width: 0;
+    }
+  }
   @keyframes pop-in {
     from {
       opacity: 0;

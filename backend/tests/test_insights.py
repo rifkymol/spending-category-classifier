@@ -184,7 +184,10 @@ def test_all_transfers():
     assert ins["top_merchants"] == {"by_total": [], "by_count": []}
     assert ins["small_spends"]["share_of_living"] is None
     assert ins["budget_503020"]["shares"]["unclassified_transfers"] == 1.0
-    assert len(ins["highlights"]) == 1 and "transfers" in ins["highlights"][0]["text"]
+    # The transfers total, then the largest recipient (67% of transfers).
+    assert [h["text"].split(" ")[:3] for h in ins["highlights"]] == [
+        ["Rp", "750.000", "went"], ["Your", "largest", "transfer"]]
+    assert "Budi Contoh" in ins["highlights"][1]["text"]
 
 
 def test_empty_and_row_objects():

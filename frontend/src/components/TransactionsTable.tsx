@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import CategoryPicker from "./CategoryPicker";
 import SegmentedControl from "./SegmentedControl";
 import { CheckIcon } from "./icons";
@@ -11,13 +10,19 @@ import { useLocale } from "@/lib/i18n";
 import { isFlagged, isMoneyIn, reviewProgress } from "@/lib/summary";
 import { CATEGORIES, type Row } from "@/lib/types";
 
-interface Props {
-  rows: Row[];
+interface Actions {
   onRelabel: (id: number, category: string) => void;
   onConfirm: (id: number) => void;
 }
 
-type Filter = "all" | "review" | "next";
+export type TxFilter = "all" | "review" | "next";
+
+interface Props extends Actions {
+  rows: Row[];
+  /** The filter is lifted so the "N need review → Review" prompt can preselect "To review". */
+  filter: TxFilter;
+  onFilterChange: (filter: TxFilter) => void;
+}
 
 /** Built in the browser and saved locally; the labels never go to the API. The file is a machine
  * format for `classify.py train`, so its header and category keys stay English in every language. */
@@ -25,10 +30,10 @@ function exportLabels(rows: Row[]) {
   saveBlob(new Blob([labelsCsv(rows)], { type: "text/csv;charset=utf-8" }), labelsFileName());
 }
 
-const badge = "ml-2 inline-block rounded-full px-1.5 py-px align-[1px] text-[11px] font-medium";
+export const badge = "ml-2 inline-block rounded-full px-1.5 py-px align-[1px] text-[11px] font-medium";
 
 /** The category picker plus, for rows still under review, the "Looks right" pill. */
-function CategoryCell({ row, onRelabel, onConfirm }: { row: Row } & Omit<Props, "rows">) {
+export function CategoryCell({ row, onRelabel, onConfirm }: { row: Row } & Actions) {
   const { t, category } = useLocale();
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -54,9 +59,9 @@ function CategoryCell({ row, onRelabel, onConfirm }: { row: Row } & Omit<Props, 
   );
 }
 
-export default function TransactionsTable({ rows, onRelabel, onConfirm }: Props) {
+/** The full table with filters and Export labels; it sits in the collapsible "All transactions" section. */
+export default function TransactionsTable({ rows, onRelabel, onConfirm, filter, onFilterChange }: Props) {
   const { t, rich, date, percent } = useLocale();
-  const [filter, setFilter] = useState<Filter>("all");
   const progress = reviewProgress(rows);
   const remaining = progress.flagged - progress.reviewed;
   // "To review" keeps reviewed rows visible so they can be revisited; "Next" hides them.
@@ -70,15 +75,10 @@ export default function TransactionsTable({ rows, onRelabel, onConfirm }: Props)
   const strong = (value: number) => <span className="font-semibold tabular-nums text-ink">{value}</span>;
 
   return (
-    <section aria-labelledby="tx-heading">
+    <div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 id="tx-heading" className="text-base font-semibold tracking-tight">
-            {t("tx.heading")}
-          </h2>
-          <p className="mt-0.5 max-w-prose text-sm text-muted">{t("tx.help")}</p>
-        </div>
-        <SegmentedControl label={t("tx.show")} options={filters} value={filter} onChange={setFilter} />
+        <p className="max-w-prose text-sm text-muted">{t("tx.help")}</p>
+        <SegmentedControl label={t("tx.show")} options={filters} value={filter} onChange={onFilterChange} />
       </div>
 
       <div className="mt-5 flex flex-col gap-2 border-y border-line py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
@@ -173,6 +173,6 @@ export default function TransactionsTable({ rows, onRelabel, onConfirm }: Props)
           </table>
         </div>
       )}
-    </section>
+    </div>
   );
 }

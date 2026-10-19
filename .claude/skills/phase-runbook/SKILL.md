@@ -293,6 +293,62 @@ Goal: a frontend that is **minimal but more interesting**. Less boxing, stronger
   - *(c) `test_upload_writes_no_files` can fail while a Next server writes `.next` cache; add `.next` and `node_modules` to SKIP_DIRS.*
   - *(d) localStorage on 127.0.0.1:3000 also holds `saleseval-auth` from the user's other project, which used the same origin. It isn't from this app.*
 
+## Phase 10: simpler dashboard + category details popup (approved 2026-10-19)
+
+Goal: show only the main things first and reveal details on demand. The behaviour, privacy rules and data flow stay unchanged; this is frontend only, no backend change.
+
+### 10.1 Category details popup
+- **Opening it:** clicking a category (a row in the "Where it went" list, or its donut slice) opens a details popup for that category: Makanan, Transportasi, Belanja, Tagihan or Transfer.
+- **Popup contents:**
+  - Header: category dot + name, total Rp, count, % of spend.
+  - Its transactions sorted by date (date, description, amount, an "In" badge for money in), with the CategoryPicker on each row so you can fix a category right there. A relabelled row moves out of the list live, and totals, insights and review counts update as usual.
+  - A small "Top merchants in this category" line (computed client-side from these rows).
+  - For **Transfer**: rows split into "Out" and "In" sub-groups with their totals, since transfers mix both directions.
+- **Accessibility:** a proper dialog (`role="dialog"`, `aria-modal`, labelled by its heading, focus trap, Esc/close button/backdrop click closes it, focus returns to the clicked row). The page behind doesn't scroll. Respects reduced motion.
+- **Layout:** a side panel from the right on desktop, a bottom sheet on phones (decision P1).
+- **i18n:** all text goes through the EN/ID dictionaries, with parity enforced.
+
+### 10.2 Remove the donut hover highlight (for now)
+- No hover/tap highlight on slices and no Recharts tooltip.
+- The center label always shows the total spend (or the top category; decision P3).
+- Slices become click targets that open the popup (the same as the list rows), with a pointer cursor and keyboard-reachable rows in the list as the accessible path.
+
+### 10.3 Main things first (progressive disclosure)
+- **Visible by default:**
+  1. hero "Spent Rp X" + period + inline stats (transactions · to review · saved %);
+  2. the donut + clickable category list;
+  3. a compact 50/30/20 strip (three mini bars: needs/wants/savings vs target, with Rp amounts);
+  4. a "N transactions need review → Review" prompt (only when N > 0);
+  5. the download control.
+- **Collapsed by default** (disclosure sections with a summary line, e.g. "Insights · 5 highlights", "All transactions · 98"):
+  - full Insights (highlights, top merchants, small spends, fees, what-if sliders, the income field details);
+  - the full transactions table with filters and Export labels.
+- **Review prompt:** "Review" opens the transactions section directly on the "To review" filter.
+- **Disclosure behaviour:** accessible buttons (`aria-expanded`/`aria-controls`) with a smooth height animation that's off under reduced motion. The open/closed state is NOT stored (resets per upload, per rule 7).
+
+### Checklist
+- [x] [You] Decide P1–P3. *(2026-10-19: P1 = side panel (bottom sheet on phones); P2 = the compact 50/30/20 strip is visible by default; P3 = the donut center shows total spend. Monitoring: the Claude mobile app via Remote Control, no Telegram for now.)*
+- [x] [You] Approve the start of the build. *(2026-10-19)*
+- [x] [builder] 10.2 remove the hover/tooltip; 10.1 popup component + wiring; 10.3 disclosure layout + review prompt; EN/ID strings; keep the storage/i18n checks green.
+- [x] [auditor] lint/tsc/build, i18n + storage checks, dialog a11y (focus trap, Esc, focus return), no new deps or external loads, 190 backend tests still pass.
+- [x] [PM] Browser walkthrough (EN/ID, light/dark, desktop/375 px) with synthetic data: open every category popup, relabel inside the popup, expand/collapse sections, review prompt; refresh screenshots; record; ask before commit.
+
+*Phase 10 verified 2026-10-19:*
+- *Builder: new Sheet, CategoryDetails, Disclosure, BudgetStrip and lib/merchants; 166 i18n keys; no dependency or backend changes.*
+- *Auditor: 11/11 checks, no fixes.*
+- *PM (real API, synthetic BCA fixture):*
+  - *Main view: hero + stats + download, then the donut (center "Total spend Rp 925.5K") + category list, the 50/30/20 strip with Rp vs target, then collapsed Insights ("5 highlights · top merchant …") and All transactions.*
+  - *The Transfer panel opens from the list with focus on Close, splits Out (2 · Rp 750.000) and In (2 · Rp 8.500.000), and shows the money-in note. Esc closes it, focus returns to the Transfer row, and the scroll lock is released.*
+  - *At 375 px in ID + dark: the bottom sheet (sized to content, max 85%) shows Makanan with "4,9% dari pengeluaran"; the donut center reads "Rp 925,5 rb"; no horizontal scroll.*
+- *results.png recaptured (synthetic model).*
+- *Correction 10.2 (user, 2026-10-19: "the old hove is should stayed / what iwant remove is just the label when u hovering the pie chart"): the hover highlight is restored (slice emphasis, others dimmed, center shows category + %, the list row emphasized), and only the Recharts floating tooltip is removed. With no hover the center goes back to Total spend; a click still opens the panel. PM verified in the browser: Bills hover → "19.4% · Bills"; leaving → "Total spend Rp 6.7M"; no `.recharts-tooltip-wrapper` in the DOM.*
+- *Transfers tracked (user, 2026-10-19: transfers like rent, debt or donations must stay trackable, and "top merchants" in the panel must be prominent). The earlier idea of hiding the line was dropped.*
+  - *Backend: `transfer_key()` (counterparty names; cash withdrawals and unnamed transfers each grouped under one localized label). `top_transfers` {out_by_total, out_by_count, in_by_total}. A recipient highlight (EN/ID). PDF/XLSX "Top transfers" tables.*
+  - *Frontend: a prominent "Where the money went" card (top 5 with #1 marked "Biggest") at the top of every category panel. Transfer shows Top recipients (out) + Top sources (in). Insights gets a "Top transfers" block.*
+  - *Auditor: 9/9 pass, 212 tests. No recipient names or amounts in logs (test + live log grep). Reports are safe (names can't start with "=").*
+  - *PM browser check (synthetic CSV): rent Kos Contoh Indah Rp 2.500.000 (53.2%, Biggest), Budi Contoh Rp 1.500.000 2×, ATM Rp 500.000, donation Rp 200.000. The highlight "Your largest transfer recipient was Kos Contoh Indah…" is shown. ID + 375 px: "Penerima teratas (keluar)", "Terbesar", no horizontal scroll.*
+  - *Cosmetic follow-ups: (a) at 375 px the #1 name is shortened next to the "Terbesar" pill; (b) README line 83 says transfers are left out of top merchants, which could point to Top transfers; (c) there's no README screenshot of the panel yet.*
+
 ## Portfolio polish
 
 - [x] [builder] Wrote the README landing page, PRIVACY.md, MIT LICENSE, CHANGELOG (v0.1–v0.7), CONTRIBUTING and `.github/workflows/ci.yml` (backend pytest; frontend lint → build → tsc; docker build; `contents: read`). *(2026-10-19)*

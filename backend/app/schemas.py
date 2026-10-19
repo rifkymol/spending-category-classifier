@@ -60,6 +60,22 @@ class TopMerchants(BaseModel):
     by_count: list[Merchant]
 
 
+class TransferParty(BaseModel):
+    """A transfer counterparty (recipient or source), grouped from the descriptions."""
+
+    name: str
+    count: int
+    total: float
+    avg: float
+    share: float | None  # of transfers out (out_*) or of money in (in_by_total); None when that is 0
+
+
+class TopTransfers(BaseModel):
+    out_by_total: list[TransferParty]
+    out_by_count: list[TransferParty]
+    in_by_total: list[TransferParty]
+
+
 class SmallSpends(BaseModel):
     threshold: int
     count: int
@@ -128,6 +144,7 @@ class Highlight(BaseModel):
 class Insights(BaseModel):
     cash_flow: CashFlow
     top_merchants: TopMerchants
+    top_transfers: TopTransfers
     small_spends: SmallSpends
     fees: Fees
     budget_503020: Budget503020

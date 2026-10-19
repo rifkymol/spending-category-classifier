@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import BudgetStrip from "./BudgetStrip";
 import CategoryChart from "./CategoryChart";
-import InsightsPanel from "./Insights";
+import CategoryDetails from "./CategoryDetails";
+import Disclosure from "./Disclosure";
+import InsightsPanel, { BUDGET_ANCHOR } from "./Insights";
 import SegmentedControl from "./SegmentedControl";
 import Stat from "./Stat";
-import TransactionsTable from "./TransactionsTable";
+import TransactionsTable, { type TxFilter } from "./TransactionsTable";
 import { DownloadIcon } from "./icons";
 import { REPORT_FORMATS, downloadReport, fetchInsights, type ReportFormat } from "@/lib/api";
 import { formatIDR } from "@/lib/format";
@@ -25,6 +28,23 @@ interface Props {
 }
 
 const INSIGHTS_DEBOUNCE_MS = 300;
+const TRANSACTIONS_ANCHOR = "all-transactions";
+// Matches the Disclosure height transition, so a scroll lands after the section has opened.
+const EXPAND_MS = 320;
+
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** Scrolls to (and focuses) the element with `id`, after a just-opened section has expanded. */
+function reveal(id: string, wasOpen: boolean) {
+  setTimeout(
+    () => {
+      const el = document.getElementById(id);
+      el?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+      el?.focus({ preventScroll: true });
+    },
+    wasOpen || reducedMotion() ? 0 : EXPAND_MS,
+  );
+}
 
 /** "1 Sep – 30 Sep 2026" from the ISO dates in the rows, or null when there are none. */
 function period(rows: Row[], locale: Locale): string | null {
@@ -41,7 +61,7 @@ function period(rows: Row[], locale: Locale): string | null {
 }
 
 export default function Results({ rows, fileName, initialInsights, initialInsightsLocale, onChange, onReset }: Props) {
-  const { locale, t, number, percent } = useLocale();
+  const { locale, t, tc, number, percent } = useLocale();
   const summary = useMemo(() => summarize(rows), [rows]);
   const span = useMemo(() => period(rows, locale), [rows, locale]);
   const hasAmounts = summary.total_amount > 0;
@@ -55,6 +75,13 @@ export default function Results({ rows, fileName, initialInsights, initialInsigh
   // Monthly income typed into the 50/30/20 card; null = use the income detected from money in.
   // Kept in this component's state only, never stored.
   const [incomeOverride, setIncomeOverride] = useState<number | null>(null);
+  // Main things first: the full Insights and the transactions table start collapsed. This state is
+  // never stored; Results unmounts on Start over, so a new upload starts collapsed again.
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const [txOpen, setTxOpen] = useState(false);
+  const [txFilter, setTxFilter] = useState<TxFilter>("all");
+  // The category whose details panel is open, and the control to return focus to.
+  const [details, setDetails] = useState<{ category: string; opener: HTMLElement | null } | null>(null);
   // What the insights on screen were computed for.
   const shown = useRef({ rows, income: null as number | null, locale: initialInsightsLocale });
 
@@ -94,6 +121,36 @@ export default function Results({ rows, fileName, initialInsights, initialInsigh
       setDownloading(false);
     }
   }
+
+  const relabelRow = (id: number, category: string) => onChange(relabel(rows, id, category));
+  const confirmRow = (id: number) => onChange(confirm(rows, id));
+
+  function openBudget() {
+    setInsightsOpen(true);
+    reveal(BUDGET_ANCHOR, insightsOpen);
+  }
+
+  function openReview() {
+    setTxFilter("review");
+    setTxOpen(true);
+    reveal(TRANSACTIONS_ANCHOR, txOpen);
+  }
+
+  const topMerchant = insights?.top_merchants.by_total[0]?.merchant;
+  const insightsSummary = insights
+    ? [
+        insights.highlights.length > 0 && tc("sections.highlights", insights.highlights.length),
+        topMerchant && t("sections.topMerchant", { name: topMerchant }),
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+  const txSummary = [
+    tc("chart.transactions", summary.total_rows),
+    summary.needs_review > 0 && t("sections.toReview", { count: number(summary.needs_review) }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const formats = REPORT_FORMATS.map((f) => ({ value: f, label: f === "xlsx" ? t("format.excel") : f.toUpperCase() }));
 
@@ -171,23 +228,74 @@ export default function Results({ rows, fileName, initialInsights, initialInsigh
           {hasAmounts ? t("results.whereItWent") : t("results.shareByCount")}
         </h2>
         <p className="mt-0.5 text-sm text-muted">{hasAmounts ? t("results.whereSub") : t("results.countSub")}</p>
-        <CategoryChart summary={summary} byAmount={hasAmounts} />
+        <CategoryChart summary={summary} byAmount={hasAmounts} onOpen={(category, opener) => setDetails({ category, opener })} />
       </section>
 
-      {insights && (
-        <InsightsPanel
-          insights={insights}
-          stale={insightsStale}
-          incomeOverride={incomeOverride}
-          onIncomeChange={setIncomeOverride}
-        />
+      {insights && insights.cash_flow.total_out + insights.cash_flow.money_in > 0 && (
+        <BudgetStrip budget={insights.budget_503020} onDetails={openBudget} />
       )}
 
-      <TransactionsTable
-        rows={rows}
-        onRelabel={(id, category) => onChange(relabel(rows, id, category))}
-        onConfirm={(id) => onChange(confirm(rows, id))}
-      />
+      {summary.needs_review > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg bg-warn-soft px-4 py-3 text-sm">
+          <p className="font-medium text-warn">{tc("review.prompt", summary.needs_review)}</p>
+          <button
+            type="button"
+            onClick={openReview}
+            className="focus-ring inline-flex items-center gap-1 rounded-full border border-line bg-surface px-3 py-1 font-medium text-ink transition-colors duration-150 hover:border-line-strong"
+          >
+            {t("review.action")}
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      )}
+
+      <div className="border-b border-line">
+        {insights && (
+          <Disclosure
+            title={t("insights.heading")}
+            summary={insightsSummary || undefined}
+            open={insightsOpen}
+            onToggle={() => setInsightsOpen((open) => !open)}
+          >
+            <InsightsPanel
+              insights={insights}
+              stale={insightsStale}
+              incomeOverride={incomeOverride}
+              onIncomeChange={setIncomeOverride}
+            />
+          </Disclosure>
+        )}
+        <Disclosure
+          id={TRANSACTIONS_ANCHOR}
+          title={t("tx.heading")}
+          summary={txSummary}
+          open={txOpen}
+          onToggle={() => setTxOpen((open) => !open)}
+        >
+          <TransactionsTable
+            rows={rows}
+            onRelabel={relabelRow}
+            onConfirm={confirmRow}
+            filter={txFilter}
+            onFilterChange={setTxFilter}
+          />
+        </Disclosure>
+      </div>
+
+      {details && (
+        <CategoryDetails
+          key={details.category}
+          category={details.category}
+          rows={rows}
+          summary={summary}
+          byAmount={hasAmounts}
+          insights={insights}
+          returnFocus={details.opener}
+          onClosed={() => setDetails(null)}
+          onRelabel={relabelRow}
+          onConfirm={confirmRow}
+        />
+      )}
     </div>
   );
 }

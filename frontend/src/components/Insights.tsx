@@ -21,7 +21,7 @@ interface Props {
 const CUT_MAX = 50;
 const CUT_STEP = 5;
 
-const BUCKETS = [
+export const BUCKETS = [
   { key: "needs", label: "budget.needs", color: CATEGORY_COLORS.transport },
   { key: "wants", label: "budget.wants", color: CATEGORY_COLORS.shopping },
   { key: "savings", label: "budget.savings", color: CATEGORY_COLORS.transfer },
@@ -29,10 +29,18 @@ const BUCKETS = [
 
 type Budget = Insights["budget_503020"];
 
-function Block({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
+/** The id of the 50/30/20 card, which the compact budget strip's "Budget details" link scrolls to. */
+export const BUDGET_ANCHOR = "budget-503020";
+
+function Block({ title, children, anchor }: { title: string; children: ReactNode; anchor?: string }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className={className}>
+    <section
+      aria-labelledby={id}
+      id={anchor}
+      tabIndex={anchor ? -1 : undefined}
+      className={anchor ? "scroll-mt-6 rounded-sm outline-none" : undefined}
+    >
       <h3 id={id} className="text-sm font-semibold">
         {title}
       </h3>
@@ -310,6 +318,47 @@ function MerchantList({ merchants, by }: { merchants: Merchant[]; by: "total" | 
   );
 }
 
+function TopTransfers({ transfers }: { transfers: Insights["top_transfers"] }) {
+  const { t, percent } = useLocale();
+  const [by, setBy] = useState<"total" | "count">("total");
+  const items = by === "total" ? transfers.out_by_total : transfers.out_by_count;
+  const sort = [
+    { value: "total", label: t("insights.byTotal") },
+    { value: "count", label: t("insights.byCount") },
+  ] as const;
+
+  return (
+    <Block title={t("insights.topTransfers")}>
+      <div className="mt-3">
+        <SegmentedControl label={t("insights.sortTransfers")} size="sm" options={sort} value={by} onChange={setBy} />
+      </div>
+      {items.length === 0 ? (
+        <p className="mt-4 text-sm text-muted">{t("insights.noTransfers")}</p>
+      ) : (
+        <BarList
+          className="mt-4"
+          items={items.map((m) => ({
+            key: m.name,
+            label: m.name,
+            value: by === "total" ? m.total : m.count,
+            display: by === "total" ? formatIDR(m.total) : `${m.count}×`,
+            color: CATEGORY_COLORS.transfer,
+            sub: [
+              by === "total"
+                ? t("insights.merchantSubTotal", { count: m.count, avg: formatIDR(m.avg) })
+                : t("insights.merchantSubCount", { total: formatIDR(m.total), avg: formatIDR(m.avg) }),
+              m.share !== null ? t("insights.ofTransfers", { pct: percent(m.share) }) : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          }))}
+        />
+      )}
+      <p className="mt-3 text-xs text-muted">{t("insights.transfersCount")}</p>
+    </Block>
+  );
+}
+
 function WhatIf({ perMonth, budget }: { perMonth: Record<string, number>; budget: Budget }) {
   const { t, rich, category } = useLocale();
   // Transfers are left out: they mix savings and payments to people.
@@ -393,20 +442,16 @@ export default function InsightsPanel({ insights, stale, incomeOverride, onIncom
   ] as const;
 
   return (
-    <section aria-labelledby="insights-heading" className="space-y-10 border-t border-line pt-10">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-        <h2 id="insights-heading" className="text-base font-semibold tracking-tight">
-          {t("insights.heading")}
-        </h2>
-        {period.start && period.days !== null && (
-          <p className="text-sm text-muted">
-            {date(period.start, true)} – {date(period.end, true)} ({tc("insights.days", period.days)})
-          </p>
-        )}
-      </div>
+    // The "Insights" heading is the disclosure button around this panel (see Results).
+    <div className="space-y-10">
+      {period.start && period.days !== null && (
+        <p className="text-sm text-muted">
+          {date(period.start, true)} – {date(period.end, true)} ({tc("insights.days", period.days)})
+        </p>
+      )}
 
       {stale && (
-        <p role="status" className="-mt-6 rounded-lg bg-warn-soft px-4 py-2 text-sm text-warn">
+        <p role="status" className="rounded-lg bg-warn-soft px-4 py-2 text-sm text-warn">
           {t("insights.stale")}
         </p>
       )}
@@ -415,7 +460,7 @@ export default function InsightsPanel({ insights, stale, incomeOverride, onIncom
         <p className="text-sm text-muted">{t("insights.needAmounts")}</p>
       ) : (
         <>
-          <dl className="-mt-4 grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
             <Stat
               label={t("insights.moneyIn")}
               value={cash.money_in > 0 ? formatIDR(cash.money_in) : "—"}
@@ -450,11 +495,6 @@ export default function InsightsPanel({ insights, stale, incomeOverride, onIncom
           )}
 
           <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
-            <Block title={t("insights.budget")}>
-              <IncomeField detected={detectedIncome} incomeOverride={incomeOverride} onIncomeChange={onIncomeChange} />
-              {budget.target_amounts && budget.difference ? <BucketTargets budget={budget} /> : <SharesBar budget={budget} />}
-            </Block>
-
             <Block title={t("insights.topMerchants")}>
               <div className="mt-3">
                 <SegmentedControl
@@ -468,30 +508,39 @@ export default function InsightsPanel({ insights, stale, incomeOverride, onIncom
               <MerchantList merchants={merchants} by={merchantsBy} />
               <p className="mt-3 text-xs text-muted">{t("insights.merchantsNote")}</p>
             </Block>
+
+            <TopTransfers transfers={insights.top_transfers} />
           </div>
 
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div className="border-l-2 border-warn-bar pl-4 text-sm text-ink-2">
-              <p className="font-medium text-ink">{t("insights.smallSpends")}</p>
-              <p className="mt-1">
-                {rich("insights.smallText", {
-                  count: number(small.count),
-                  threshold: formatIDR(small.threshold),
-                  total: strong(formatIDR(small.total)),
-                  share: small.share_of_living !== null ? t("insights.smallShare", { share: percent(small.share_of_living) }) : "",
-                })}
-              </p>
-            </div>
-            <div className="border-l-2 border-line-strong pl-4 text-sm text-ink-2">
-              <p className="font-medium text-ink">{t("insights.fees")}</p>
-              <p className="mt-1">
-                {fees.count === 0
-                  ? t("insights.noFees")
-                  : rich(fees.count === 1 ? "insights.feesText_one" : "insights.feesText_other", {
-                      count: number(fees.count),
-                      total: strong(formatIDR(fees.total)),
-                    })}
-              </p>
+          <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
+            <Block title={t("insights.budget")} anchor={BUDGET_ANCHOR}>
+              <IncomeField detected={detectedIncome} incomeOverride={incomeOverride} onIncomeChange={onIncomeChange} />
+              {budget.target_amounts && budget.difference ? <BucketTargets budget={budget} /> : <SharesBar budget={budget} />}
+            </Block>
+
+            <div className="space-y-6">
+              <div className="border-l-2 border-warn-bar pl-4 text-sm text-ink-2">
+                <p className="font-medium text-ink">{t("insights.smallSpends")}</p>
+                <p className="mt-1">
+                  {rich("insights.smallText", {
+                    count: number(small.count),
+                    threshold: formatIDR(small.threshold),
+                    total: strong(formatIDR(small.total)),
+                    share: small.share_of_living !== null ? t("insights.smallShare", { share: percent(small.share_of_living) }) : "",
+                  })}
+                </p>
+              </div>
+              <div className="border-l-2 border-line-strong pl-4 text-sm text-ink-2">
+                <p className="font-medium text-ink">{t("insights.fees")}</p>
+                <p className="mt-1">
+                  {fees.count === 0
+                    ? t("insights.noFees")
+                    : rich(fees.count === 1 ? "insights.feesText_one" : "insights.feesText_other", {
+                        count: number(fees.count),
+                        total: strong(formatIDR(fees.total)),
+                      })}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -510,6 +559,6 @@ export default function InsightsPanel({ insights, stale, incomeOverride, onIncom
         <span aria-hidden="true">* </span>
         {insights.disclaimer}
       </p>
-    </section>
+    </div>
   );
 }

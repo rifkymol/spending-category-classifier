@@ -213,6 +213,13 @@ def _insights_sheet(wb: Workbook, insights: dict, lang: str = "en") -> None:
     for m in insights["top_merchants"]["by_total"]:
         add([m["merchant"], m["count"], m["total"], m["avg"]], [None, None, idr, idr])
 
+    section(t(lang, "top_transfers_out"), [
+        t(lang, "col_recipient"), t(lang, "col_count"), f"{t(lang, 'col_total')} ({cur})",
+        f"{t(lang, 'col_average')} ({cur})", t(lang, "col_share"),
+    ])
+    for m in insights["top_transfers"]["out_by_total"]:
+        add([m["name"], m["count"], m["total"], m["avg"], dash(m["share"])], [None, None, idr, idr, pct])
+
     small = insights["small_spends"]
     section(t(lang, "small_spends"))
     add([t(lang, "small_under_count", threshold=format_idr(small["threshold"])), small["count"]], [None, None])
@@ -431,6 +438,16 @@ def _highlights_story(insights: dict, styles, cell, lang: str = "en") -> list:
             for m in merchants
         ]
         story += [KeepTogether(_table(rows, [70, 20, 35, 32], cell)), Spacer(1, 2 * mm)]
+
+    transfers = insights["top_transfers"]["out_by_total"]
+    if transfers:
+        rows = [[t(lang, "top_transfers_out"), t(lang, "col_count"), t(lang, "col_total"), t(lang, "col_average"),
+                 t(lang, "col_share")]] + [
+            [Paragraph(escape(m["name"]), cell), str(m["count"]), format_idr(m["total"]), format_idr(m["avg"]),
+             f"{m['share']:.1%}" if m["share"] is not None else "-"]
+            for m in transfers
+        ]
+        story += [KeepTogether(_table(rows, [62, 16, 33, 30, 16], cell)), Spacer(1, 2 * mm)]
 
     story += [Paragraph(escape(insights["disclaimer"]), cell), Spacer(1, 6 * mm)]
     return story

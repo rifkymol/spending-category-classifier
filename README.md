@@ -31,6 +31,9 @@ Then open http://127.0.0.1:3000.
 - **Two-stage classifier:** keyword rules for well-known merchants, then a TF-IDF + logistic regression model for the rest.
 - **Review flags** on low-confidence rows (threshold 0.6), with a "Next to review" filter and one-click "Looks right".
 - **Editable categories**, a donut chart and per-category totals; money coming in is shown but not counted as spending.
+- **Category details:** click a category (or its slice) to open a side panel (a bottom sheet on phones) that leads with "Where the money went" (its biggest merchants, or for transfers its top recipients and sources) and lists every transaction in it, so you can fix categories right there.
+- **Top transfers:** transfers are grouped by recipient (rent, debt, family, donations), ranked by total or count, with a highlight for your largest recipient and a table in the PDF and Excel reports.
+- **Main things first:** the results page leads with the total, the chart, a compact 50/30/20 strip and a "need review" prompt; the full insights and the transactions table open on demand.
 - **Spending insights:** cash flow and savings rate, top merchants, small-spend and fee callouts, a 50/30/20 view and what-if sliders, updated as you correct categories.
 - **50/30/20 in Rupiah:** monthly targets for needs, wants and savings from your income (detected from money in, or typed in and never stored), with "Rp X left" / "Rp X over" per bucket.
 - **Reports** as CSV, Excel (summary sheet with a chart, plus an Insights sheet) or A4 PDF (with a Highlights section), all built in memory.

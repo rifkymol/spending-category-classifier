@@ -11,6 +11,10 @@ Conventions (the same as summarize() in the API):
 - Amounts use abs(). Rows without an amount are counted but add 0 to totals.
 - "Living spend" is money out that is not a transfer. Transfers mix savings, rent and
   payments to people, so they are shown on their own and never in top merchants.
+- Top transfers (top_transfers) group transfer rows by counterparty (transfer_key): "out"
+  for money-out transfers (share = share of transfers out) and "in" for money-in rows
+  categorized as transfer (share = share of money in). Rent, debt, family and donations
+  stay trackable this way.
 
 50/30/20 in Rupiah (budget_503020), all per month:
 - income_monthly: the user's income_override when it is given and > 0, else money in
@@ -45,6 +49,8 @@ DAYS_PER_MONTH = 30.4375
 TOP_N = 5
 MAX_HIGHLIGHTS = 5
 SMALL_SPEND_HIGHLIGHT_SHARE = 0.15
+RECIPIENT_SHARE_OF_TRANSFERS = 0.20
+RECIPIENT_SHARE_OF_OUT = 0.10
 DISCLAIMER = t("en", "disclaimer")
 
 # Fee rows, matched on the cleaned description. The bills rules already cover "biaya adm";
@@ -60,6 +66,22 @@ MERCHANT_BOILERPLATE = [
 ] + BCA_NOISE
 MERCHANT_WORDS = 3
 
+# Words in BCA transfer descriptions that say how money moved, not to or from whom. Matched as
+# whole words on lowercased text after reference codes, dates and punctuation are removed.
+TRANSFER_BOILERPLATE = [
+    "trsf", "trf", "transfer", "e banking", "ebanking", "m banking", "mbanking", "m transfer", "internet banking",
+    "db", "cr", "bi fast", "bifast", "switching", "llg", "kliring", "skn", "rtgs", "kr otomatis", "kredit otomatis",
+    "db otomatis", "debit otomatis", "antar bank", "antarbank", "dari", "ke", "qris", "ref", "ftscy", "ws",
+    "tgl", "tanggal", "berita", "rek", "no", "bank", "bca", "bri", "bni", "btn", "mandiri", "cimb", "permata",
+]
+TRANSFER_WORDS = 4
+# Kept upper-case in names ("PT Contoh Jaya", not "Pt Contoh Jaya").
+_UPPER_WORDS = {"pt", "cv", "ud", "tbk"}
+_CASH_PATTERN = re.compile(r"\b(tarik tunai|atm)\b")
+# Keys for transfers without a named counterparty; transfer_name() translates them for display.
+TRANSFER_CASH = "<cash>"
+TRANSFER_OTHER = "<other>"
+
 
 def _phrase(phrase: str) -> re.Pattern:
     return re.compile(rf"\b{re.escape(phrase)}\b")
@@ -67,6 +89,7 @@ def _phrase(phrase: str) -> re.Pattern:
 
 _FEE_PATTERNS = [_phrase(clean_description(p)) for p in FEE_PHRASES]
 _BOILERPLATE = [_phrase(p) for p in MERCHANT_BOILERPLATE]
+_TRANSFER_BOILERPLATE = [_phrase(p) for p in sorted(TRANSFER_BOILERPLATE, key=len, reverse=True)]
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -98,6 +121,34 @@ def merchant_key(description: str) -> str:
         text = pattern.sub(" ", text)
     words = [w for w in text.split() if len(w) > 1]
     return " ".join(words[:MERCHANT_WORDS]).title()
+
+
+def transfer_key(description: str) -> str:
+    """The counterparty of a transfer, for grouping: reference codes, dates, digits and
+    transfer boilerplate removed, up to four words title-cased ("TRSF E-BANKING DB
+    0309/FTSCY/WS95051 BUDI CONTOH" -> "Budi Contoh"). Cash withdrawals give TRANSFER_CASH and
+    descriptions with no name left give TRANSFER_OTHER."""
+    text = (description or "").lower()
+    if _CASH_PATTERN.search(re.sub(r"[^a-z\s]", " ", text)):
+        return TRANSFER_CASH
+    text = re.sub(r"\S*[\d/]\S*", " ", text)  # reference codes, dates and numbers ("0309/ftscy/ws95051")
+    text = re.sub(r"[^a-z\s]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    for pattern in _TRANSFER_BOILERPLATE:
+        text = pattern.sub(" ", text)
+    words = [w for w in text.split() if len(w) > 1][:TRANSFER_WORDS]
+    if not words:
+        return TRANSFER_OTHER
+    return " ".join(w.upper() if w in _UPPER_WORDS else w.capitalize() for w in words)
+
+
+def transfer_name(key: str, lang: str = "en") -> str:
+    """Display text for a transfer_key() result."""
+    if key == TRANSFER_CASH:
+        return t(lang, "transfer_cash")
+    if key == TRANSFER_OTHER:
+        return t(lang, "transfer_other")
+    return key
 
 
 def is_fee(description: str) -> bool:
@@ -146,8 +197,43 @@ def _top_merchants(spend: list[dict]) -> dict:
     return {"by_total": by_total[:TOP_N], "by_count": by_count[:TOP_N]}
 
 
+def _group_transfers(rows: list[dict], base: float) -> tuple[list[dict], list[dict]]:
+    """Transfer rows grouped by transfer_key: (by total, by count), TOP_N each, with the raw
+    key kept for now. share = total / base."""
+    groups: dict[str, dict] = {}
+    for r in rows:
+        key = transfer_key(r["description"])
+        g = groups.setdefault(key, {"key": key, "count": 0, "total": 0.0})
+        g["count"] += 1
+        g["total"] += r["amount"]
+    items = [{
+        "key": g["key"],
+        "count": g["count"],
+        "total": _r(g["total"]),
+        "avg": _r(g["total"] / g["count"]),
+        "share": round(g["total"] / base, 4) if base > 0 else None,
+    } for g in groups.values()]
+    by_total = sorted((m for m in items if m["total"] > 0), key=lambda m: (-m["total"], -m["count"], m["key"]))
+    by_count = sorted(items, key=lambda m: (-m["count"], -m["total"], m["key"]))
+    return by_total[:TOP_N], by_count[:TOP_N]
+
+
+def _top_transfers(spend: list[dict], money_in_rows: list[dict], transfers_out: float, money_in: float,
+                   lang: str) -> tuple[dict, dict | None]:
+    """top_transfers, plus the largest named recipient out (for the highlight; None if none)."""
+    out_by_total, out_by_count = _group_transfers([r for r in spend if r["category"] == TRANSFER], transfers_out)
+    in_by_total, _ = _group_transfers([r for r in money_in_rows if r["category"] == TRANSFER], money_in)
+
+    def named(items: list[dict]) -> list[dict]:
+        return [{"name": transfer_name(m["key"], lang), **{k: v for k, v in m.items() if k != "key"}} for m in items]
+
+    recipient = next((m for m in out_by_total if m["key"] not in (TRANSFER_CASH, TRANSFER_OTHER)), None)
+    top = {"out_by_total": named(out_by_total), "out_by_count": named(out_by_count), "in_by_total": named(in_by_total)}
+    return top, (named([recipient])[0] if recipient else None)
+
+
 def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict, budget: dict,
-                lang: str = "en") -> list[dict]:
+                lang: str = "en", recipient: dict | None = None) -> list[dict]:
     out = []
     living = cash["living_spend"]
 
@@ -193,6 +279,18 @@ def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict
     if cash["transfers_out"] > 0:
         out.append({"text": t(lang, "hl_transfers", amount=format_rp(cash["transfers_out"])),
                     "impact_rp": cash["transfers_out"]})
+
+    # The largest named transfer recipient, when it is a big part of transfers or of all money out.
+    if recipient is not None and (
+        recipient["total"] >= RECIPIENT_SHARE_OF_TRANSFERS * cash["transfers_out"]
+        or recipient["total"] >= RECIPIENT_SHARE_OF_OUT * cash["total_out"]
+    ):
+        key = "hl_recipient_one" if recipient["count"] == 1 else "hl_recipient_many"
+        out.append({
+            "text": t(lang, key, name=recipient["name"], total=format_rp(recipient["total"]), count=recipient["count"],
+                      pct=_pct(recipient["total"] / cash["transfers_out"])),
+            "impact_rp": recipient["total"],
+        })
 
     # Rupiah targets, per month: needs/wants over their target, savings short of its target.
     diff = budget["difference"]
@@ -281,6 +379,7 @@ def compute_insights(rows, income_override: float | None = None, lang: str = "en
     language of the highlights and the disclaimer. Returns a JSON-serializable dict."""
     money_in = 0.0
     money_in_count = 0
+    money_in_rows = []
     spend = []
     dates = []
     for row in rows:
@@ -290,6 +389,11 @@ def compute_insights(rows, income_override: float | None = None, lang: str = "en
         if _field(row, "direction") == "CR":
             money_in += amount
             money_in_count += 1
+            money_in_rows.append({
+                "description": str(_field(row, "description") or ""),
+                "amount": amount,
+                "category": str(_field(row, "predicted")),
+            })
             continue
         spend.append({
             "description": str(_field(row, "description") or ""),
@@ -317,6 +421,7 @@ def compute_insights(rows, income_override: float | None = None, lang: str = "en
     }
 
     top = _top_merchants(spend)
+    transfers, recipient = _top_transfers(spend, money_in_rows, transfers_out, money_in, lang)
 
     small_rows = [r for r in spend if r["category"] != TRANSFER and 0 < r["amount"] < SMALL_SPEND_THRESHOLD]
     small_total = sum(r["amount"] for r in small_rows)
@@ -338,11 +443,12 @@ def compute_insights(rows, income_override: float | None = None, lang: str = "en
     return {
         "cash_flow": cash,
         "top_merchants": top,
+        "top_transfers": transfers,
         "small_spends": small,
         "fees": fees,
         "budget_503020": budget,
         "period": period,
         "per_month": per_month,
-        "highlights": _highlights(cash, cat_totals, small, fees, top, budget, lang),
+        "highlights": _highlights(cash, cat_totals, small, fees, top, budget, lang, recipient),
         "disclaimer": t(lang, "disclaimer"),
     }

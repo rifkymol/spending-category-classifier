@@ -37,6 +37,12 @@ STRINGS: dict[str, dict[str, str]] = {
                         "not counted as living spend.",
         "hl_over_target": "{bucket} were {over} a month over the {pct} target ({target}).",
         "hl_savings_short": "Savings were {short} a month short of the {pct} target ({target}).",
+        "hl_recipient_one": "Your largest transfer recipient was {name}: {total} over {count} payment "
+                            "({pct} of transfers).",
+        "hl_recipient_many": "Your largest transfer recipient was {name}: {total} over {count} payments "
+                             "({pct} of transfers).",
+        "transfer_cash": "Cash withdrawal (ATM)",
+        "transfer_other": "Other transfer",
         "disclaimer": "Budgeting insights, not financial advice.",
         # reports
         "report_title": "Spending report",
@@ -73,6 +79,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_guideline": "Guideline",
         "col_bucket": "Bucket",
         "col_merchant": "Merchant",
+        "col_recipient": "Recipient",
         "col_highlight": "Highlight",
         "col_impact": "Impact",
         "src_rule": "rule",
@@ -81,6 +88,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "no_highlights": "Not enough amounts in this statement for highlights.",
         "budget_view": "50/30/20 view",
         "top_merchants_total": "Top merchants by total",
+        "top_transfers_out": "Top transfers (out)",
         "review_note": "* needs review",
         "money_in_note": "; + money in",
         "sheet_summary": "Summary",
@@ -158,6 +166,12 @@ STRINGS: dict[str, dict[str, str]] = {
                         "lain, jadi tidak dihitung sebagai biaya hidup.",
         "hl_over_target": "{bucket} {over} per bulan di atas target {pct} ({target}).",
         "hl_savings_short": "Tabungan {short} per bulan di bawah target {pct} ({target}).",
+        "hl_recipient_one": "Penerima transfer terbesar Anda adalah {name}: {total} dari {count} pembayaran "
+                            "({pct} dari transfer).",
+        "hl_recipient_many": "Penerima transfer terbesar Anda adalah {name}: {total} dari {count} pembayaran "
+                             "({pct} dari transfer).",
+        "transfer_cash": "Tarik tunai (ATM)",
+        "transfer_other": "Transfer lainnya",
         "disclaimer": "Wawasan anggaran, bukan nasihat keuangan.",
         "report_title": "Laporan pengeluaran",
         "report_footer": "Dibuat di komputer ini. Tidak ada data yang keluar dari komputer ini.",
@@ -193,6 +207,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_guideline": "Pedoman",
         "col_bucket": "Kelompok",
         "col_merchant": "Merchant",
+        "col_recipient": "Penerima",
         "col_highlight": "Sorotan",
         "col_impact": "Dampak",
         "src_rule": "aturan",
@@ -201,6 +216,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "no_highlights": "Nominal di laporan ini belum cukup untuk sorotan.",
         "budget_view": "Tampilan 50/30/20",
         "top_merchants_total": "Merchant teratas menurut total",
+        "top_transfers_out": "Transfer teratas (keluar)",
         "review_note": "* perlu ditinjau",
         "money_in_note": "; + uang masuk",
         "sheet_summary": "Ringkasan",
