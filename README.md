@@ -34,6 +34,7 @@ Then open http://127.0.0.1:3000.
 - **Spending insights:** cash flow and savings rate, top merchants, small-spend and fee callouts, a 50/30/20 view and what-if sliders, updated as you correct categories.
 - **Reports** as CSV, Excel (summary sheet with a chart, plus an Insights sheet) or A4 PDF (with a Highlights section), all built in memory.
 - **Teach it your spending:** export your reviewed rows as labels and train a personal model from the CLI.
+- **Dark mode** that follows your system setting, with a bundled font (no external fonts or CDNs).
 - **Self-hosted and locked down:** localhost-only ports, read-only non-root containers, no outbound calls.
 
 | Upload | Review | PDF report |

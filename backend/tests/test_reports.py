@@ -4,13 +4,17 @@ import json
 import logging
 import re
 
+import pdfplumber
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
 
 from app.main import CATEGORIES, MAX_REPORT_BYTES, app
-from app.reports import CATEGORY_COLORS, OTHER_COLOR, format_idr, period, safe_text
+from app.reports import BUDGET_COL_MM, CATEGORY_COLORS, OTHER_COLOR, _budget_table, format_idr, period, safe_text
 from app.schemas import MAX_REPORT_ROWS, Row
+from classifier.insights import compute_insights
 from test_api import ROOT, SAMPLE, post_csv, project_files
 
 INJECTION = '=HYPERLINK("http://x")'
@@ -144,6 +148,46 @@ def test_pdf_report(client, rows):
     fonts = set(re.findall(rb"/BaseFont\s*/([\w-]+)", resp.content))
     assert fonts and all(f.startswith(b"Helvetica") for f in fonts), fonts
     assert b"/Times-Roman" not in resp.content
+
+
+def pdf_pages(content: bytes) -> list[str]:
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        return [page.extract_text() or "" for page in pdf.pages]
+
+
+def test_pdf_budget_table_fits_a4(client):
+    sample = post_csv(client, SAMPLE.read_bytes()).json()["rows"]
+    budget = compute_insights([Row(**r) for r in sample])["budget_503020"]
+    cell = getSampleStyleSheet()["BodyText"].clone("cell", fontSize=8, leading=10)
+    table, _, caption = _budget_table(budget, cell)
+    assert table._colWidths == [w * mm for w in BUDGET_COL_MM]
+    assert sum(table._colWidths) <= 180 * mm  # A4 width minus 15 mm margins
+    assert [p.text for p in table._cellvalues[0]] == ["50/30/20 view", "Amount", "Share", "Guideline"]
+    assert table.repeatRows == 1
+    assert caption.text == "Share = share of total out (no money in found)."
+
+
+def test_pdf_headers_do_not_run_together(client, rows):
+    text = "\n".join(pdf_pages(get_report(client, rows, "pdf").content))
+    assert "50/30/20 view Amount Share Guideline" in text
+    assert "AmountShare" not in text
+    assert "Share = share of total out (no money in found)." in text
+
+
+def test_pdf_transaction_header_repeats_on_every_page(client, rows):
+    many = [dict(r, id=i) for i, r in enumerate(rows * 6)]
+    pages = pdf_pages(get_report(client, many, "pdf").content)
+    header = "Date Description Amount Category Source"
+    first = next(i for i, p in enumerate(pages) if header in p)
+    assert len(pages) - first >= 2, "the transactions table should span several pages"
+    assert all(header in p for p in pages[first:])
+    # No table header is left alone at the bottom of a page: each page that shows a header row
+    # also shows at least one data row under it.
+    for p in pages:
+        lines = p.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith(("Category Count Total Share", "Top merchants by total", header)):
+                assert i + 2 < len(lines), f"orphaned header: {line!r}"
 
 
 def test_reports_handle_odd_text_and_missing_values(client, rows):

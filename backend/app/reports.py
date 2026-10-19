@@ -32,7 +32,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.enums import TA_RIGHT
+from reportlab.platypus import CondPageBreak, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.schemas import Row, Summary
 from classifier.insights import compute_insights
@@ -40,16 +41,18 @@ from classifier.insights import compute_insights
 FIELDS = list(Row.model_fields)
 TITLE = "Spending report"
 FOOTER = "Generated locally. No data left this computer."
+# 50/30/20 PDF table columns in mm; the A4 content width is 180 mm (15 mm margins).
+BUDGET_COL_MM = [62, 40, 30, 30]
 
 # Must match CATEGORY_COLORS and OTHER_COLOR in frontend/src/lib/format.ts (a test checks this).
 CATEGORY_COLORS = {
-    "food": "#ea580c",
-    "transport": "#2563eb",
-    "shopping": "#db2777",
-    "bills": "#7c3aed",
-    "transfer": "#0d9488",
+    "food": "#D85A30",
+    "transport": "#378ADD",
+    "shopping": "#D4537E",
+    "bills": "#7F77DD",
+    "transfer": "#1D9E75",
 }
-OTHER_COLOR = "#64748b"
+OTHER_COLOR = "#888780"
 
 _INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
@@ -322,16 +325,22 @@ _GRID = [
 ]
 
 
-def _highlights_story(insights: dict, styles, cell) -> list:
-    body = styles["BodyText"]
-    story = [Paragraph("Highlights", styles["Heading2"])]
-    if insights["highlights"]:
-        story += [Paragraph(f"{i}. {escape(h['text'])}", body) for i, h in enumerate(insights["highlights"], start=1)]
-    else:
-        story.append(Paragraph("Not enough amounts in this statement for highlights.", body))
-    story.append(Spacer(1, 3 * mm))
+def _table(data: list[list], widths_mm: list[float], cell, right_from: int = 1) -> Table:
+    """A grid table with explicit column widths and a header row that repeats on every page.
 
-    budget = insights["budget_503020"]
+    Header labels become bold Paragraphs so a long label wraps inside its column instead of
+    running into the next one. Columns from `right_from` on are right-aligned.
+    """
+    head = cell.clone("head", fontName="Helvetica-Bold")
+    head_right = head.clone("head_right", alignment=TA_RIGHT)
+    header = [Paragraph(escape(str(h)), head_right if i >= right_from else head) for i, h in enumerate(data[0])]
+    t = Table([header] + data[1:], colWidths=[w * mm for w in widths_mm], repeatRows=1, hAlign="LEFT")
+    t.setStyle(TableStyle(_GRID + [("ALIGN", (right_from, 0), (-1, -1), "RIGHT")]))
+    return t
+
+
+def _budget_table(budget: dict, cell) -> list:
+    """The 50/30/20 table (short headers, widths that fit A4) plus a caption naming the share basis."""
     basis = "money in" if budget["basis"] == "money_in" else "total out (no money in found)"
 
     def money(value):
@@ -340,13 +349,24 @@ def _highlights_story(insights: dict, styles, cell) -> list:
     def share(value):
         return f"{value:.1%}" if value is not None else "-"
 
-    table = [["50/30/20 view", "Amount", f"Share of {basis}", "Guideline"]]
+    table = [["50/30/20 view", "Amount", "Share", "Guideline"]]
     for label, key in [("Needs (bills + transport)", "needs"), ("Wants (food + shopping)", "wants"),
                        ("Savings (net)", "savings"), ("Transfers (unclassified)", "unclassified_transfers")]:
         table.append([label, money(budget[key]), share(budget["shares"][key]), share(budget["targets"].get(key))])
-    t = Table(table, colWidths=[50 * mm, 35 * mm, 50 * mm, 22 * mm], hAlign="LEFT")
-    t.setStyle(TableStyle(_GRID + [("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
-    story += [t, Spacer(1, 3 * mm)]
+    caption = cell.clone("caption", fontSize=7, leading=9, textColor=colors.HexColor("#64748b"))
+    return [_table(table, BUDGET_COL_MM, cell), Spacer(1, 1 * mm), Paragraph(f"Share = share of {basis}.", caption)]
+
+
+def _highlights_story(insights: dict, styles, cell) -> list:
+    body = styles["BodyText"]
+    if insights["highlights"]:
+        items = [Paragraph(f"{i}. {escape(h['text'])}", body) for i, h in enumerate(insights["highlights"], start=1)]
+    else:
+        items = [Paragraph("Not enough amounts in this statement for highlights.", body)]
+    story = [KeepTogether([Paragraph("Highlights", styles["Heading2"]), *items]), Spacer(1, 3 * mm)]
+
+    # KeepTogether: a table header never sits alone at the bottom of a page.
+    story += [KeepTogether(_budget_table(insights["budget_503020"], cell)), Spacer(1, 3 * mm)]
 
     merchants = insights["top_merchants"]["by_total"]
     if merchants:
@@ -354,9 +374,7 @@ def _highlights_story(insights: dict, styles, cell) -> list:
             [Paragraph(escape(m["merchant"]), cell), str(m["count"]), format_idr(m["total"]), format_idr(m["avg"])]
             for m in merchants
         ]
-        t = Table(rows, colWidths=[70 * mm, 20 * mm, 35 * mm, 32 * mm], hAlign="LEFT")
-        t.setStyle(TableStyle(_GRID + [("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
-        story += [t, Spacer(1, 2 * mm)]
+        story += [KeepTogether(_table(rows, [70, 20, 35, 32], cell)), Spacer(1, 2 * mm)]
 
     story += [Paragraph(escape(insights["disclaimer"]), cell), Spacer(1, 6 * mm)]
     return story
@@ -384,16 +402,15 @@ def report_pdf(rows: list[Row], summary: Summary, insights: dict | None = None) 
 
     pie = _pie(summary)
     if pie is not None:
-        story += [Paragraph("Share of spend by category" if has_amounts else "Share of transactions by category",
-                            styles["Heading2"]), pie, Spacer(1, 4 * mm)]
+        heading = "Share of spend by category" if has_amounts else "Share of transactions by category"
+        story += [KeepTogether([Paragraph(heading, styles["Heading2"]), pie]), Spacer(1, 4 * mm)]
 
     totals = [["Category", "Count", "Total", "Share"]] + [
         [c.category.capitalize(), str(c.count), format_idr(c.total_amount) if has_amounts else "-", f"{c.share:.1%}"]
         for c in summary.by_category
     ]
-    totals_table = Table(totals, colWidths=[45 * mm, 20 * mm, 40 * mm, 20 * mm], hAlign="LEFT")
-    totals_table.setStyle(TableStyle(_GRID + [("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
-    story += [Paragraph("Totals by category", styles["Heading2"]), totals_table, Spacer(1, 6 * mm)]
+    totals_table = _table(totals, [45, 20, 40, 20], cell)
+    story += [KeepTogether([Paragraph("Totals by category", styles["Heading2"]), totals_table]), Spacer(1, 6 * mm)]
     story += _highlights_story(insights if insights is not None else compute_insights(rows), styles, cell)
 
     tx = [["Date", "Description", "Amount", "Category", "Source"]] + [
@@ -409,6 +426,8 @@ def report_pdf(rows: list[Row], summary: Summary, insights: dict | None = None) 
     tx_table = Table(tx, colWidths=[22 * mm, 80 * mm, 28 * mm, 24 * mm, 16 * mm], repeatRows=1, hAlign="LEFT")
     tx_table.setStyle(TableStyle(_GRID + [("ALIGN", (2, 0), (2, -1), "RIGHT")]))
     story += [
+        # Start a new page unless the heading, note, header row and a few rows fit here.
+        CondPageBreak(45 * mm),
         Paragraph("Transactions", styles["Heading2"]),
         Paragraph("* needs review" + ("; + money in" if summary.money_in_count else ""), cell),
         Spacer(1, 2 * mm),

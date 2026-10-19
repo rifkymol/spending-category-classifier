@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { LockIcon, UploadIcon } from "./icons";
 import { classify, isPdf, MAX_BYTES } from "@/lib/api";
 import type { ClassifyResponse } from "@/lib/types";
 
@@ -14,6 +15,8 @@ function validate(file: File): string | null {
   if (file.size === 0) return "That file is empty.";
   return null;
 }
+
+const code = "rounded bg-subtle px-1 py-px font-mono text-[0.85em] text-ink-2";
 
 export default function Upload({ onResult }: Props) {
   const inputId = useId();
@@ -42,17 +45,19 @@ export default function Upload({ onResult }: Props) {
   }
 
   return (
-    <section aria-labelledby="upload-heading" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <h2 id="upload-heading" className="text-lg font-semibold">
-        Upload a statement
-      </h2>
-      <p className="mt-1 text-sm text-slate-700">Upload a BCA e-statement PDF or a CSV.</p>
-      <p className="mt-1 flex items-center gap-2 text-sm text-emerald-800">
-        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 shrink-0 fill-current">
-          <path d="M10 1.5 3 4.5v5c0 4.2 3 7.9 7 9 4-1.1 7-4.8 7-9v-5l-7-3Zm-1 12.1-3.3-3.3 1.4-1.4L9 10.8l3.9-3.9 1.4 1.4L9 13.6Z" />
-        </svg>
-        Your file is processed on this computer and never stored.
-      </p>
+    <section aria-labelledby="upload-heading" className="animate-fade-in">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 id="upload-heading" className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            Upload a statement
+          </h2>
+          <p className="mt-2 text-ink-2">A BCA e-statement PDF or a CSV.</p>
+        </div>
+        <p className="inline-flex items-center gap-1.5 self-start rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent sm:self-auto">
+          <LockIcon className="h-3.5 w-3.5" />
+          Processed on this computer, never stored
+        </p>
+      </div>
 
       <label
         htmlFor={inputId}
@@ -66,22 +71,31 @@ export default function Upload({ onResult }: Props) {
           setDragging(false);
           handle(e.dataTransfer.files[0]);
         }}
-        className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-blue-600 ${
-          dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 hover:border-slate-400 hover:bg-slate-50"
+        className={`mt-8 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-6 py-16 text-center transition-colors duration-200 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent sm:py-24 ${
+          dragging ? "border-accent bg-accent-soft" : "border-line-strong bg-surface hover:border-ink-2/40"
         } ${loading ? "pointer-events-none opacity-70" : ""}`}
       >
         {loading ? (
-          <span role="status" className="flex items-center gap-3 text-slate-700">
-            <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+          <span role="status" className="flex items-center gap-3 text-ink-2">
+            <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-line-strong border-t-accent" />
             Classifying transactions…
           </span>
         ) : (
           <>
-            <span className="font-medium text-slate-800">Drop a PDF or CSV file here, or click to choose one</span>
-            <span className="mt-1 text-sm text-slate-600">
-              PDF: a BCA e-statement without a password. CSV: needs a{" "}
-              <code className="rounded bg-slate-100 px-1">description</code> column; <code className="rounded bg-slate-100 px-1">date</code> and{" "}
-              <code className="rounded bg-slate-100 px-1">amount</code> are optional. Max 5 MB.
+            <span
+              aria-hidden="true"
+              className={`flex h-12 w-12 items-center justify-center rounded-full transition-colors duration-200 ${
+                dragging ? "bg-surface text-accent" : "bg-subtle text-ink-2"
+              }`}
+            >
+              <UploadIcon className="h-6 w-6" />
+            </span>
+            <span className="mt-4 font-medium text-ink">
+              {dragging ? "Drop to classify" : "Drop a PDF or CSV here, or click to choose one"}
+            </span>
+            <span className="mt-2 max-w-md text-sm text-muted">
+              PDF: a BCA e-statement without a password. CSV: needs a <code className={code}>description</code> column;{" "}
+              <code className={code}>date</code> and <code className={code}>amount</code> are optional. Max 5 MB.
             </span>
           </>
         )}
@@ -97,14 +111,18 @@ export default function Upload({ onResult }: Props) {
       </label>
 
       {error && (
-        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="mt-4 rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
           {error}
         </p>
       )}
 
-      <p className="mt-6 text-sm text-slate-600">
+      <p className="mt-6 text-sm text-muted">
         No statement handy?{" "}
-        <a href="/sample.csv" download="sample_transactions.csv" className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900">
+        <a
+          href="/sample.csv"
+          download="sample_transactions.csv"
+          className="focus-ring rounded-sm font-medium text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
+        >
           Download a synthetic sample CSV
         </a>{" "}
         and upload it.

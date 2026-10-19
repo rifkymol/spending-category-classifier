@@ -187,6 +187,52 @@ Goal: an **Insights** panel plus report highlights that turn one uploaded statem
 - *Masked real-statement check (personal model): 98 rows; all 9 sections present; savings rate computed (basis money_in); 5+5 top merchants; 5 highlights; PDF and XLSX reports OK.*
 - *The dev servers were restarted on the new build; the API still uses `MODEL_PATH=models/personal.joblib`.*
 
+## Phase UI: minimal redesign (approved 2026-10-19)
+
+Goal: a frontend that is **minimal but more interesting**. Less boxing, stronger typography, a calmer palette, and custom controls instead of plain native dropdowns. No behaviour changes, no new npm dependencies by default, and all privacy rules kept (no external fonts/CDNs, no storage, telemetry off).
+
+**Design direction** (the mockup was shown to the user)
+- **Tokens:** design tokens in `globals.css` `@theme`: a warm off-white canvas, near-black ink, hairline borders, one neutral accent, radius scale, and motion durations. Category colors become a calmer harmonious set (teal / violet / pink / coral / blue), defined once in `format.ts` and mirrored in `reports.py` (a test already enforces they match).
+- **Typography:** large hero numbers with tabular figures, small muted labels, two weights only. The system font stack is the default; an optional self-hosted font is listed under decisions.
+- **Results header:** a hero "Spent Rp X" with the period, plus inline stats (transactions · to review · saved %) instead of three boxed cards.
+- **Chart:** a slimmer donut with a center label (the top category and %), with hover/focus highlighting the slice. The totals table becomes a ranked **bar list** (dot, name, amount, thin bar).
+- **Category picker (replaces the native `<select>`):**
+  - A pill with a color dot, label and chevron. It opens a small popover listbox with color dots and a checkmark on the current value.
+  - Keyboard: ↑/↓, Home/End, type-ahead, Enter, Esc. Closes on outside click. ARIA listbox/combobox pattern with focus return. The ✓ "Looks right" button sits next to it as a matching icon pill.
+- **Report format:** the native select becomes a **segmented control** (CSV / Excel / PDF) plus a Download button.
+- **Filters:** All / To review / Next as a segmented control with counts. Review rows get an amber left accent bar instead of a full yellow row fill.
+- **Upload:** a large calm drop zone with an inline SVG icon, a drag-over state, a lock badge with "Processed on this computer, never stored", and the sample link.
+- **Insights:**
+  - Highlights as a numbered list with emphasized figures.
+  - 50/30/20 as one segmented bar with labels.
+  - Merchants as a bar list.
+  - What-if sliders with category-colored tracks and a live value.
+  - The disclaimer as a quiet footnote.
+- **Motion:** 150–200 ms fades/slides on the results appearing and on popovers; respects `prefers-reduced-motion`.
+- **Accessibility:** AA contrast, visible focus rings, a full-keyboard picker, labelled controls, mobile layout down to 375 px.
+
+**Checklist**
+- [x] [You] Approve the direction and the 3 decisions: (1) dark mode yes/no, (2) the font: system stack, or a self-hosted OFL font (needs a one-time font file download, committed to the repo, no runtime fetch), (3) the accent color. *(2026-10-19: approved. Dark mode follows the system; bundle Inter (one-time download, committed, no runtime fetch); near-black with a teal accent.)*
+- [x] [builder] Tokens + layout shell + calmer category palette (frontend + `reports.py` colors kept in sync, tests updated).
+- [x] [builder] Components: `CategoryPicker` (listbox popover), `SegmentedControl`, `BarList`, `Stat`; replace the selects/filters/totals table; review-row accent.
+- [x] [builder] Restyle Upload, Results header, chart and the Insights panel; motion with reduced-motion support; mobile pass.
+- [x] [builder] Update the README screenshots (PM captures them with synthetic data) and add a CHANGELOG entry.
+- [x] [auditor] lint/tsc/build; picker keyboard + ARIA review; no external URLs/fonts, no storage; contrast spot-check; 142 backend tests still pass.
+- [x] [PM] Before/after browser walkthrough (desktop + 375 px) with synthetic data; record; ask before commit.
+
+*Phase UI verified 2026-10-19:*
+- *Font: the official Inter v4.1 release (zip sha256 9883fdd4…), InterVariable.woff2 sha256 693b77d4…, plus the OFL-1.1 license, served from `.next/static/media`. There's no runtime fetch.*
+- *Auditor: 11/11 checks, no fixes.*
+- *PM checks:*
+  - *Light mode, dark mode (computed contrast OK) and 375 px (no horizontal scroll).*
+  - *Picker, real click: it opens anchored, flips upward near the bottom, relabels, closes and returns focus. An earlier misreading came from clicking the hidden mobile copy in a script.*
+- *Three issues found by the PM and fixed with the user's approval:*
+  1. *The PDF 50/30/20 headers overlapped. Now there are explicit column widths, short headers and a basis caption.*
+  2. *A PDF table header was orphaned at the bottom of a page. Tables now keep their header with the first rows and use `repeatRows`.*
+  3. *The donut highlight stuck after hover or tap. It now resets on leave, blur or an outside tap (verified by a real hover: Transport 8.3% → back to Transfer 48.6%).*
+- *145 tests pass.*
+- *The 4 README screenshots were recaptured in the new design, with the API temporarily on the synthetic model. The API was then switched back to `models/personal.joblib`.*
+
 ## Portfolio polish
 
 - [x] [builder] Wrote the README landing page, PRIVACY.md, MIT LICENSE, CHANGELOG (v0.1–v0.7), CONTRIBUTING and `.github/workflows/ci.yml` (backend pytest; frontend lint → build → tsc; docker build; `contents: read`). *(2026-10-19)*

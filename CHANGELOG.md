@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on 
 ### Added
 - Portfolio docs: rewritten README, `PRIVACY.md`, `CONTRIBUTING.md`, this changelog and an MIT `LICENSE`.
 - GitHub Actions CI: backend tests, frontend lint/typecheck/build, and `docker compose build`.
+- Dark mode that follows the system setting (`prefers-color-scheme`); every color is a design token that swaps in dark mode.
+- Bundled Inter 4.1 variable font (`frontend/src/app/fonts/`, SIL OFL 1.1), loaded with `next/font/local` and served by the app itself. No runtime font fetch.
+- Custom, keyboard-accessible controls with no new dependencies: a category picker (pill + listbox popover with arrow keys, Home/End, type-ahead, Enter/Space, Esc/Tab), segmented controls (report format, table filters, merchant sort) and ranked bar lists.
+
+### Changed
+- Minimal UI redesign: less boxing, hairline dividers, a warm off-white canvas with near-black ink and a teal accent, larger hero figures with tabular numbers, and 150–200 ms motion that is turned off under `prefers-reduced-motion`.
+- Results header: a hero "Spent" amount with the statement period and an inline stat line, replacing the stat cards.
+- The donut is slimmer with a center label, and a bar list replaces the totals table. The transactions table uses hairline rows, an amber left bar on rows to review, short dates ("22 Sep") and a stacked layout on phones.
+- Insights: numbered highlights, a single 50/30/20 bar with guideline marks, merchants as a bar list, quiet callouts, category-colored what-if sliders and the disclaimer as a footnote.
+- Calmer category palette (food `#D85A30`, transport `#378ADD`, shopping `#D4537E`, bills `#7F77DD`, transfer `#1D9E75`, other `#888780`), kept in sync between the web app and the Excel/PDF reports.
 
 ## [0.8.0] - 2026-10-19 (Phase 8a: Unreleased)
 
