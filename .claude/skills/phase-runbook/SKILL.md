@@ -233,6 +233,66 @@ Goal: a frontend that is **minimal but more interesting**. Less boxing, stronger
 - *145 tests pass.*
 - *The 4 README screenshots were recaptured in the new design, with the API temporarily on the synthetic model. The API was then switched back to `models/personal.joblib`.*
 
+## Phase 9: two languages, theme toggle, 50/30/20 amounts (approved 2026-10-19)
+
+### 9.1 50/30/20 with Rupiah targets (based on income)
+- **Income:** money in (CR rows), scaled to one month via `months_factor`.
+  - CSV uploads have no money in. The user can type a **monthly income** into the 50/30/20 card instead, with no storage.
+  - The user can also override the detected income (money in can include refunds or transfers from family).
+- **Targets:** needs = 50% × income, wants = 30%, savings = 20%, in Rp per month.
+- **Each row shows:** target Rp, actual Rp (and %), and the difference, e.g. "Rp 450.000 left" (green) or "Rp 300.000 over" (amber). Savings actual = net (income − spending). Transfers stay "unclassified", shown separately with a note.
+- **Backend (`insights.py`):** add `income_monthly`, `target_amounts`, `actual_amounts` and `difference` to `budget_503020`. `/api/insights` accepts an optional `income_override` (number), so the highlights, PDF and Excel use the same figure. Highlights add a sentence such as "Your wants were Rp X over the 30% target".
+- **UI:** per bucket, a bar with a target marker, "Rp actual / Rp target", and the difference text. Plus an editable "Monthly income" field with a "detected from money in" hint and a reset link. The what-if section shows how far a cut moves wants toward its target.
+- **Reports:** the PDF and Excel 50/30/20 tables get Target, Actual and Difference columns, plus an income line.
+- **Tests:** amounts are computed correctly; the override changes the targets; no-income CSV + override; over/under cases; rounding.
+
+### 9.2 Two languages: English and Bahasa Indonesia
+- **No new library:** `lib/i18n.ts` with `en` and `id` dictionaries, a `t(key, vars)` helper and a `useLocale()` context. Every UI string moves to these dictionaries, including aria-labels.
+- **Categories:** display names are translated (Makanan, Transportasi, Belanja, Tagihan, Transfer); internal keys stay English.
+- **Dates and numbers:** `Intl` with the active locale (e.g. "22 Sep" vs "22 Sep", "Okt", "Des"). Rupiah is already id-ID.
+- **Backend text:** highlights, the disclaimer, error messages and the PDF/Excel labels take `?lang=en|id` on `/api/classify`, `/api/insights` and `/api/report`, with the strings in a backend dictionary (`classifier/i18n.py`). The API stays English by default.
+- **Toggle:** an "EN | ID" segmented control in the header. The default follows the browser language (Indonesian browsers start in Indonesian).
+- **Tests:**
+  - backend: both languages produce highlights, PDF and Excel text;
+  - frontend: a key-parity check (every key exists in both dictionaries) via a small node script;
+  - lint, tsc and build pass.
+
+### 9.3 Theme toggle (light, dark, system)
+- A "System | Light | Dark" control in the header. It sets `data-theme` on `<html>`, and the tokens already exist for both modes.
+- A small inline script in `<head>` applies the saved choice before first paint (no flash).
+- The default is **System**, as today.
+
+### Open decisions for the user
+- **D1 – remembering preferences:** language and theme can be (a) not remembered (re-detected on every visit), or (b) remembered in browser storage, as UI preferences only. Option (b) needs a narrow exception to the app's "no browser storage" rule in CLAUDE.md, README and PRIVACY: only `lang` and `theme`, never any financial data, plus a test that enforces only those keys.
+- **D2 – default language:** follow the browser, or always start in English or Indonesian.
+- **D3 – default theme:** System (current) or Light.
+- **D4 – income source:** auto-detect from money in with a manual override (proposed), or always ask the user to type it.
+
+### Checklist
+- [x] [You] Decide D1–D4. *(2026-10-19: D1 = remember `lang` and `theme` only, as a documented, test-enforced storage exception; D2 = follow the browser; D3 = System; D4 = auto from money in, with a manual override that isn't stored.)*
+- [x] [You] Approve the start of the build. *(2026-10-19)*
+- [x] [builder] 9.1 50/30/20 amounts (backend, API, UI, reports, tests).
+- [x] [builder] 9.2 i18n (frontend dictionaries + backend strings + tests).
+- [x] [builder] 9.3 Theme toggle (+ storage exception if D1 = b).
+- [x] [auditor] Tests, key parity, storage keys (only the allowed ones), no external loads, a11y of the new controls, docs accuracy.
+- [x] [PM] Browser walkthrough in EN/ID × light/dark × desktop/375 px with synthetic data; masked real-statement check (sections present, targets computed, no Rp printed); refresh screenshots; record; ask before commit.
+
+*Phase 9 verified 2026-10-19:*
+- *Builder: 190 tests; i18n parity (143 keys); storage check (keys lang/theme only).*
+- *Auditor: hand-computed 50/30/20 all pass. Override 20M → targets 10M/6M/4M. `lang=id` highlights and PDF are in Indonesian. Validation rejects −5 and "abc" with no echo. The income is never stored. CI runs check:i18n and check:storage.*
+- *PM browser check (synthetic BCA fixture PDF):*
+  - *Detected income Rp 8.500.000 → targets 4.25M/2.55M/1.7M; savings 7.574.500 (= income − all out). Typing 20.000.000 → targets 10M/6M/4M and "Entered by you. Not stored".*
+  - *Indonesian UI throughout, and the override is kept across the language switch.*
+  - *Dark + ID persist across a reload (data-theme set before paint). localStorage holds only lang/theme from this app.*
+  - *The PDF 50/30/20 table has Target/Actual/Difference + an income line.*
+- *Masked real-statement check (personal model): EN and ID both give 98 rows, income detected (money_in), targets present, 5 highlights. The override is accepted, and PDF/XLSX in ID return 200.*
+- *Screenshots: upload.png, results.png and report-pdf.png recaptured (synthetic model); review.png kept.*
+- *Known minor items:*
+  - *(a) A brief pre-hydration flash of the default labels/toggles (EN/System) before the saved choice applies.*
+  - *(b) The PRIVACY.md "no next/font import" sentence is inaccurate (it should say no next/font/google and no remote font).*
+  - *(c) `test_upload_writes_no_files` can fail while a Next server writes `.next` cache; add `.next` and `node_modules` to SKIP_DIRS.*
+  - *(d) localStorage on 127.0.0.1:3000 also holds `saleseval-auth` from the user's other project, which used the same origin. It isn't from this app.*
+
 ## Portfolio polish
 
 - [x] [builder] Wrote the README landing page, PRIVACY.md, MIT LICENSE, CHANGELOG (v0.1–v0.7), CONTRIBUTING and `.github/workflows/ci.yml` (backend pytest; frontend lint → build → tsc; docker build; `contents: read`). *(2026-10-19)*

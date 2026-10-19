@@ -30,6 +30,7 @@ from pydantic import ValidationError
 
 from app.reports import report_csv, report_pdf, report_xlsx
 from app.schemas import CategoryTotal, ClassifyResponse, Health, Insights, ReportRequest, Row, Summary
+from classifier.i18n import normalize_lang, t
 from classifier import CONFIDENCE_THRESHOLD, build_model, classify, clean_description, load_transactions
 from classifier.insights import compute_insights
 from classifier.importers import PdfPasswordRequired, UnsupportedPdf, parse_bca_pdf, statement_frame
@@ -111,9 +112,15 @@ async def request_validation_handler(request: Request, exc: RequestValidationErr
 # ---- helpers ---------------------------------------------------------------
 
 
-async def read_body(request: Request, limit: int = MAX_UPLOAD_BYTES, what: str = "File") -> bytes:
+def lang_param(lang: str | None) -> str:
+    """The ?lang= query value as "en" or "id"; anything else is English."""
+    return normalize_lang(lang)
+
+
+async def read_body(request: Request, limit: int = MAX_UPLOAD_BYTES, what: str = "err_what_file",
+                    lang: str = "en") -> bytes:
     """Read the request body into memory, refusing anything over `limit` bytes."""
-    too_big = f"{what} is larger than {limit // (1024 * 1024)} MB."
+    too_big = t(lang, "err_too_large", what=t(lang, what), mb=limit // (1024 * 1024))
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > limit:
         raise HTTPException(413, too_big)
@@ -126,7 +133,7 @@ async def read_body(request: Request, limit: int = MAX_UPLOAD_BYTES, what: str =
     return b"".join(chunks)
 
 
-def decode(raw: bytes) -> str:
+def decode(raw: bytes, lang: str = "en") -> str:
     try:
         return raw.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -134,7 +141,7 @@ def decode(raw: bytes) -> str:
     try:
         return raw.decode("cp1252")
     except UnicodeDecodeError:
-        raise HTTPException(400, "Could not read the file. Save it as UTF-8 CSV.") from None
+        raise HTTPException(400, t(lang, "err_encoding")) from None
 
 
 def _optional_text(value) -> str | None:
@@ -208,30 +215,29 @@ def summarize(rows: list[Row]) -> Summary:
     )
 
 
-def read_csv(raw: bytes) -> pd.DataFrame:
+def read_csv(raw: bytes, lang: str = "en") -> pd.DataFrame:
     try:
-        return load_transactions(io.StringIO(decode(raw)))
+        return load_transactions(io.StringIO(decode(raw, lang)))
     except HTTPException:
         raise
     except (pd.errors.EmptyDataError, pd.errors.ParserError):  # both subclass ValueError, so check first
-        raise HTTPException(400, "Could not parse the file as CSV.") from None
+        raise HTTPException(400, t(lang, "err_csv_parse")) from None
     except ValueError as exc:  # missing description column; the message lists column names only
-        raise HTTPException(400, str(exc)) from None
+        _, _, found = str(exc).partition("Columns found: ")
+        raise HTTPException(400, t(lang, "err_csv_columns", found=found) if found else str(exc)) from None
 
 
-def read_pdf(raw: bytes) -> pd.DataFrame:
+def read_pdf(raw: bytes, lang: str = "en") -> pd.DataFrame:
     """A BCA e-statement PDF as date, description, amount and direction columns. Parsed in memory."""
     try:
         return statement_frame(parse_bca_pdf(raw))
     except PdfPasswordRequired:
-        raise HTTPException(
-            400, "This PDF is password-protected. Save a copy without the password and upload that."
-        ) from None
+        raise HTTPException(400, t(lang, "err_pdf_password")) from None
     except UnsupportedPdf:
-        raise HTTPException(400, "Only BCA e-statement PDFs are supported right now.") from None
+        raise HTTPException(400, t(lang, "err_pdf_unsupported")) from None
     except Exception as exc:  # log the type only: messages can quote row data
         logger.error("pdf import failed: %s", type(exc).__name__)
-        raise HTTPException(400, "Only BCA e-statement PDFs are supported right now.") from None
+        raise HTTPException(400, t(lang, "err_pdf_unsupported")) from None
 
 
 # ---- endpoints -------------------------------------------------------------
@@ -246,37 +252,39 @@ def health(request: Request) -> Health:
 async def classify_upload(
     request: Request,
     threshold: float = Query(CONFIDENCE_THRESHOLD, ge=0.0, le=1.0),
+    lang: str | None = Query(None),
 ) -> ClassifyResponse:
+    lang = lang_param(lang)
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if content_type not in ACCEPTED_TYPES:
-        raise HTTPException(
-            415, "Send the file as the request body with Content-Type: text/csv or application/pdf."
-        )
+        raise HTTPException(415, t(lang, "err_content_type"))
 
-    raw = await read_body(request)
+    raw = await read_body(request, lang=lang)
     if not raw.strip():
-        raise HTTPException(400, "The file is empty.")
+        raise HTTPException(400, t(lang, "err_empty"))
 
-    df = read_pdf(raw) if content_type == "application/pdf" or raw.startswith(b"%PDF-") else read_csv(raw)
+    is_pdf = content_type == "application/pdf" or raw.startswith(b"%PDF-")
+    df = read_pdf(raw, lang) if is_pdf else read_csv(raw, lang)
     del raw
 
     try:
         result = classify(df, request.app.state.model, threshold)
         rows = to_rows(result)
         summary = summarize(rows)
-        insights = compute_insights(rows)
+        insights = compute_insights(rows, lang=lang)
     except Exception as exc:  # log the type only: messages can quote row data
         logger.error("classify failed: %s", type(exc).__name__)
-        raise HTTPException(500, "Classification failed.") from None
+        raise HTTPException(500, t(lang, "err_classify")) from None
 
     request.state.row_count = len(rows)
     return ClassifyResponse(rows=rows, summary=summary, insights=insights)
 
 
-async def read_rows(request: Request) -> list[Row]:
-    """The {rows} JSON body of /api/report and /api/insights. Read and validated by hand so its
-    size can be capped before parsing and validation errors never echo row data."""
-    raw = await read_body(request, MAX_REPORT_BYTES, "Request")
+async def read_rows(request: Request, lang: str = "en") -> ReportRequest:
+    """The {rows, income_override} JSON body of /api/report and /api/insights. Read and validated
+    by hand so its size can be capped before parsing and validation errors never echo row data
+    (or the income)."""
+    raw = await read_body(request, MAX_REPORT_BYTES, "err_what_request", lang)
     try:
         body = ReportRequest.model_validate_json(raw)
     except ValidationError as exc:
@@ -284,37 +292,43 @@ async def read_rows(request: Request) -> list[Row]:
             [{**e, "loc": ("body", *e["loc"])} for e in exc.errors(include_url=False, include_input=False)]
         ) from None
     request.state.row_count = len(body.rows)
-    return body.rows
+    return body
 
 
 @app.post("/api/insights", response_model=Insights)
-async def insights_endpoint(request: Request) -> Insights:
-    """Insights from the (possibly corrected) rows. Stateless: nothing is kept after the response."""
-    rows = await read_rows(request)
+async def insights_endpoint(request: Request, lang: str | None = Query(None)) -> Insights:
+    """Insights from the (possibly corrected) rows and an optional monthly income override.
+    Stateless: nothing is kept after the response."""
+    lang = lang_param(lang)
+    body = await read_rows(request, lang)
     try:
-        return Insights.model_validate(compute_insights(rows))
+        return Insights.model_validate(compute_insights(body.rows, body.income_override, lang))
     except Exception as exc:  # log the type only: messages can quote row data
         logger.error("insights failed: %s", type(exc).__name__)
-        raise HTTPException(500, "Could not compute insights.") from None
+        raise HTTPException(500, t(lang, "err_insights")) from None
 
 
 @app.post("/api/report")
 async def report(
     request: Request,
     format: Literal["csv", "xlsx", "pdf"] = Query("csv"),
+    lang: str | None = Query(None),
 ) -> Response:
-    """Build a report from the (possibly corrected) rows."""
-    rows = await read_rows(request)
+    """Build a report from the (possibly corrected) rows. The CSV report is a machine format and
+    stays English; the Excel and PDF reports follow `lang`."""
+    lang = lang_param(lang)
+    body = await read_rows(request, lang)
+    rows = body.rows
     summary = summarize(rows)
     try:
         if format == "csv":
             content = report_csv(rows, summary)
         else:
             builder = {"xlsx": report_xlsx, "pdf": report_pdf}[format]
-            content = builder(rows, summary, compute_insights(rows))
+            content = builder(rows, summary, compute_insights(rows, body.income_override, lang), lang)
     except Exception as exc:  # log the type only: messages can quote row data
         logger.error("report failed: %s", type(exc).__name__)
-        raise HTTPException(500, "Could not build the report.") from None
+        raise HTTPException(500, t(lang, "err_report")) from None
 
     return Response(
         content=content,

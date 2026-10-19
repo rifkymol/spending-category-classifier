@@ -29,6 +29,7 @@ export function labelSource(r: Row): LabelSource {
   return r.source === "rule" ? "rule" : "model";
 }
 
+// A machine format for `classify.py train`: the header and category keys stay English in every UI language.
 export const LABEL_COLUMNS = ["date", "description", "amount", "direction", "category", "label_source"] as const;
 
 /** The labels file for `backend/classify.py train`, as CSV text. */

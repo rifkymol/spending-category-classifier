@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format is based on 
 ## [Unreleased]
 
 ### Added
+- Phase 9: 50/30/20 in Rupiah. `budget_503020` gains `income_monthly`, `income_source`, `target_amounts`, `actual_amounts`, `transfers_monthly` and `difference` (target − actual, per month). Income is money in scaled to one month, or an optional `income_override` on `POST /api/insights` and `POST /api/report` (validated as a finite number from 0 to 10^12, never echoed or logged). Savings = income − all money out, so transfers are not counted as savings. New highlights for wants/needs over target and savings short of target.
+- Phase 9: the Insights 50/30/20 card has a "Monthly income" field (prefilled from money in, with "Use detected"; not stored) and, per bucket, a bar with a target marker, "Rp actual of Rp target" and "Rp X left" / "Rp X over" / "Rp X short of target" / "On track". The what-if section shows where wants lands after the food and shopping cuts. PDF and Excel 50/30/20 tables get Target, Actual and Difference columns plus an income line.
+- Phase 9: English and Bahasa Indonesia. An EN | ID switch (default: the browser language) translates every UI string and aria-label (`frontend/src/lib/messages/{en,id}.json`, `lib/i18n.ts`, no library), category display names (Makanan, Transportasi, Belanja, Tagihan, Transfer; keys stay English), dates and numbers. `?lang=en|id` on `/api/classify`, `/api/insights` and `/api/report` translates highlights, the disclaimer, API error messages and the Excel/PDF reports (`backend/classifier/i18n.py`). The CSV report and the exported labels file stay English (machine formats). Rupiah stays id-ID in both languages.
+- Phase 9: a System | Light | Dark theme switch. It sets `data-theme` on `<html>`; an inline head script applies the saved choice before first paint, so there is no flash.
+- `frontend/scripts/check-i18n.mjs` (`npm run check:i18n`: same keys, placeholders and plural forms in both languages) and `frontend/scripts/check-storage.mjs` (`npm run check:storage`), both run in CI before lint.
 - Portfolio docs: rewritten README, `PRIVACY.md`, `CONTRIBUTING.md`, this changelog and an MIT `LICENSE`.
 - GitHub Actions CI: backend tests, frontend lint/typecheck/build, and `docker compose build`.
 - Dark mode that follows the system setting (`prefers-color-scheme`); every color is a design token that swaps in dark mode.
@@ -12,6 +17,8 @@ All notable changes to this project are documented here. The format is based on 
 - Custom, keyboard-accessible controls with no new dependencies: a category picker (pill + listbox popover with arrow keys, Home/End, type-ahead, Enter/Space, Esc/Tab), segmented controls (report format, table filters, merchant sort) and ranked bar lists.
 
 ### Changed
+- Browser storage: the app now remembers two UI preferences, `lang` and `theme`, in `localStorage` (a documented exception; see PRIVACY.md). No financial data is ever stored, and `check-storage.mjs` fails on any other key or storage API.
+- `budget_503020.basis` can be `income_override` when an income is entered; shares are then of that income. Without any income the 50/30/20 card keeps the share-of-total-out view.
 - Minimal UI redesign: less boxing, hairline dividers, a warm off-white canvas with near-black ink and a teal accent, larger hero figures with tabular numbers, and 150–200 ms motion that is turned off under `prefers-reduced-motion`.
 - Results header: a hero "Spent" amount with the statement period and an inline stat line, replacing the stat cards.
 - The donut is slimmer with a center label, and a bar list replaces the totals table. The transactions table uses hairline rows, an amber left bar on rows to review, short dates ("22 Sep") and a stacked layout on phones.

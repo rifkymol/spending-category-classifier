@@ -44,6 +44,7 @@ Constraints: Windows 11 laptop, $0, local-first. Self-hosting only; no hosted de
 4. **Email is off by default.** It works only with the user's own SMTP settings and shows a clear warning that the report leaves the machine.
 5. **Synthetic model only in the repo:** the shipped model is trained only on synthetic data. Personal models and labels stay local and gitignored.
 6. **Tests enforce these rules:** no files created during an upload; logs contain no descriptions.
+7. **Browser storage: UI preferences only.** The frontend may store exactly two keys in `localStorage`: `lang` (`en` | `id`) and `theme` (`system` | `light` | `dark`). No financial data, labels, rows or income ever go into browser storage; no sessionStorage, IndexedDB or cookies. A check script enforces this in CI. (Exception approved by the user on 2026-10-19, decision D1.)
 
 ## Index
 

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { LocaleProvider } from "@/lib/i18n";
+import { PREFS_SCRIPT } from "@/lib/prefs";
 import "./globals.css";
 
 // Bundled with the app (Inter 4.1, SIL OFL 1.1); served from this server, never fetched from the internet.
@@ -17,8 +19,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className="min-h-screen font-sans antialiased">{children}</body>
+    // The head script sets lang and data-theme before React hydrates, so the server's
+    // values can differ from the client's on purpose.
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: PREFS_SCRIPT }} />
+      </head>
+      <body className="min-h-screen font-sans antialiased">
+        <LocaleProvider>{children}</LocaleProvider>
+      </body>
     </html>
   );
 }

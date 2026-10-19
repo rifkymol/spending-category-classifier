@@ -11,6 +11,20 @@ Conventions (the same as summarize() in the API):
 - Amounts use abs(). Rows without an amount are counted but add 0 to totals.
 - "Living spend" is money out that is not a transfer. Transfers mix savings, rent and
   payments to people, so they are shown on their own and never in top merchants.
+
+50/30/20 in Rupiah (budget_503020), all per month:
+- income_monthly: the user's income_override when it is given and > 0, else money in
+  scaled to one month (money_in x months_factor), else None (e.g. a CSV upload).
+- target_amounts: TARGETS x income_monthly (needs 50%, wants 30%, savings 20%).
+- actual_amounts: needs and wants are their spend per month. Savings is
+  income_monthly - all money out per month. Transfers count as money out there, not as
+  savings: they stay "unclassified" and are shown on their own.
+- difference = target - actual per bucket. For needs and wants a positive difference is
+  money left under the target and a negative one is the amount over it. For savings a
+  positive difference is how far short of the target savings fell; zero or negative
+  means on track.
+Without income, income_monthly, target_amounts and difference are None, actual savings is
+None, and shares are of total out, as before.
 """
 
 import re
@@ -18,6 +32,7 @@ import re
 import pandas as pd
 
 from .bca import BCA_NOISE
+from .i18n import category_name, t
 from .pipeline import clean_description
 
 SMALL_SPEND_THRESHOLD = 50_000
@@ -30,7 +45,7 @@ DAYS_PER_MONTH = 30.4375
 TOP_N = 5
 MAX_HIGHLIGHTS = 5
 SMALL_SPEND_HIGHLIGHT_SHARE = 0.15
-DISCLAIMER = "Budgeting insights, not financial advice."
+DISCLAIMER = t("en", "disclaimer")
 
 # Fee rows, matched on the cleaned description. The bills rules already cover "biaya adm";
 # the phrases go through clean_description too, so "biaya adm" matches its expanded form.
@@ -131,7 +146,8 @@ def _top_merchants(spend: list[dict]) -> dict:
     return {"by_total": by_total[:TOP_N], "by_count": by_count[:TOP_N]}
 
 
-def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict, budget: dict) -> list[dict]:
+def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict, budget: dict,
+                lang: str = "en") -> list[dict]:
     out = []
     living = cash["living_spend"]
 
@@ -139,68 +155,130 @@ def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict
     if living_cats:
         cat, total = max(living_cats.items(), key=lambda kv: kv[1])
         out.append({
-            "text": f"{cat.capitalize()} was your biggest spending category at {format_rp(total)} "
-                    f"({_pct(total / living)} of living spend).",
+            "text": t(lang, "hl_biggest", cat=category_name(lang, cat), amount=format_rp(total),
+                      pct=_pct(total / living)),
             "impact_rp": _r(total),
         })
 
     if cash["money_in"] > 0:
         net = cash["net"]
         if net >= 0:
-            text = (f"You kept {format_rp(net)} of the {format_rp(cash['money_in'])} that came in "
-                    f"(a {_pct(cash['savings_rate'])} savings rate).")
+            text = t(lang, "hl_kept", net=format_rp(net), money_in=format_rp(cash["money_in"]),
+                     rate=_pct(cash["savings_rate"]))
         else:
-            text = (f"You spent {format_rp(-net)} more than the {format_rp(cash['money_in'])} that came in "
-                    f"this period.")
+            text = t(lang, "hl_overspent", amount=format_rp(-net), money_in=format_rp(cash["money_in"]))
         out.append({"text": text, "impact_rp": _r(abs(net))})
 
     if small["total"] > 0 and small["share_of_living"] is not None and small["share_of_living"] > SMALL_SPEND_HIGHLIGHT_SHARE:
         out.append({
-            "text": f"{small['count']} purchases under {format_rp(small['threshold'])} added up to "
-                    f"{format_rp(small['total'])} ({_pct(small['share_of_living'])} of living spend).",
+            "text": t(lang, "hl_small", count=small["count"], threshold=format_rp(small["threshold"]),
+                      total=format_rp(small["total"]), pct=_pct(small["share_of_living"])),
             "impact_rp": small["total"],
         })
 
     if fees["total"] > 0:
-        noun = "transaction" if fees["count"] == 1 else "transactions"
-        out.append({
-            "text": f"You paid {format_rp(fees['total'])} in bank fees across {fees['count']} {noun}.",
-            "impact_rp": fees["total"],
-        })
+        key = "hl_fees_one" if fees["count"] == 1 else "hl_fees_many"
+        out.append({"text": t(lang, key, total=format_rp(fees["total"]), count=fees["count"]),
+                    "impact_rp": fees["total"]})
 
     if top["by_total"]:
         m = top["by_total"][0]
-        visits = "payment" if m["count"] == 1 else "payments"
+        key = "hl_merchant_one" if m["count"] == 1 else "hl_merchant_many"
         out.append({
-            "text": f"Your top merchant was {m['merchant']}: {format_rp(m['total'])} over {m['count']} {visits} "
-                    f"(about {format_rp(m['avg'])} each).",
+            "text": t(lang, key, merchant=m["merchant"], total=format_rp(m["total"]), count=m["count"],
+                      avg=format_rp(m["avg"])),
             "impact_rp": m["total"],
         })
 
     if cash["transfers_out"] > 0:
-        out.append({
-            "text": f"{format_rp(cash['transfers_out'])} went out as transfers. They mix savings and payments to "
-                    f"people, so they are not counted as living spend.",
-            "impact_rp": cash["transfers_out"],
-        })
+        out.append({"text": t(lang, "hl_transfers", amount=format_rp(cash["transfers_out"])),
+                    "impact_rp": cash["transfers_out"]})
 
-    wants_share = budget["shares"]["wants"]
-    if budget["basis"] == "money_in" and wants_share is not None and wants_share > TARGETS["wants"]:
-        over = budget["wants"] - TARGETS["wants"] * budget["basis_amount"]
-        out.append({
-            "text": f"Wants (food + shopping) took {_pct(wants_share)} of money in, {format_rp(over)} above "
-                    f"the 30% guideline.",
-            "impact_rp": _r(over),
-        })
+    # Rupiah targets, per month: needs/wants over their target, savings short of its target.
+    diff = budget["difference"]
+    if diff is not None:
+        targets = budget["target_amounts"]
+        for bucket in ("needs", "wants"):
+            if diff[bucket] < 0:
+                out.append({
+                    "text": t(lang, "hl_over_target", bucket=t(lang, f"bucket_{bucket}"), over=format_rp(-diff[bucket]),
+                              pct=_pct(TARGETS[bucket]), target=format_rp(targets[bucket])),
+                    "impact_rp": _r(-diff[bucket]),
+                })
+        if diff["savings"] > 0:
+            out.append({
+                "text": t(lang, "hl_savings_short", short=format_rp(diff["savings"]), pct=_pct(TARGETS["savings"]),
+                          target=format_rp(targets["savings"])),
+                "impact_rp": _r(diff["savings"]),
+            })
 
     out = [h for h in out if h["impact_rp"] > 0]
     out.sort(key=lambda h: -h["impact_rp"])
     return out[:MAX_HIGHLIGHTS]
 
 
-def compute_insights(rows) -> dict:
+def _budget(cat_totals: dict, money_in: float, total_out: float, factor: float, income_override) -> dict:
+    """The 50/30/20 view: statement-period amounts and shares, plus per-month Rupiah targets,
+    actuals and differences when there is an income (see the module docstring)."""
+    transfers_out = cat_totals.get(TRANSFER, 0.0)
+    needs = sum(cat_totals.get(c, 0.0) for c in NEEDS)
+    wants = sum(cat_totals.get(c, 0.0) for c in WANTS)
+
+    if income_override is not None and income_override > 0:
+        income_monthly, income_source = float(income_override), "override"
+        # Shares of the entered income over the statement period (income per month x months).
+        basis, basis_amount = "income_override", income_monthly / factor
+    elif money_in > 0:
+        income_monthly, income_source = money_in * factor, "money_in"
+        basis, basis_amount = "money_in", money_in
+    else:
+        income_monthly = income_source = None
+        basis, basis_amount = "total_out", total_out
+    savings = basis_amount - total_out if income_monthly is not None else None
+
+    def share(value):
+        return round(value / basis_amount, 4) if value is not None and basis_amount > 0 else None
+
+    actual = {
+        "needs": _r(needs * factor),
+        "wants": _r(wants * factor),
+        "savings": None if income_monthly is None else _r(income_monthly - total_out * factor),
+    }
+    if income_monthly is None:
+        targets = difference = None
+    else:
+        targets = {k: _r(v * income_monthly) for k, v in TARGETS.items()}
+        difference = {k: _r(targets[k] - actual[k]) for k in TARGETS}
+
+    return {
+        "needs": _r(needs),
+        "wants": _r(wants),
+        "savings": None if savings is None else _r(savings),
+        "unclassified_transfers": _r(transfers_out),
+        "basis": basis,
+        "basis_amount": _r(basis_amount),
+        "shares": {
+            "needs": share(needs),
+            "wants": share(wants),
+            "savings": share(savings),
+            "unclassified_transfers": share(transfers_out),
+        },
+        "targets": dict(TARGETS),
+        "mapping": {"needs": sorted(NEEDS), "wants": sorted(WANTS), "unclassified": [TRANSFER]},
+        "income_monthly": None if income_monthly is None else _r(income_monthly),
+        "income_source": income_source,
+        "target_amounts": targets,
+        "actual_amounts": actual,
+        "transfers_monthly": _r(transfers_out * factor),
+        "difference": difference,
+    }
+
+
+def compute_insights(rows, income_override: float | None = None, lang: str = "en") -> dict:
     """Insights for one statement. `rows` are dicts or Row-like objects with date, description,
-    amount, predicted and direction. Returns a JSON-serializable dict."""
+    amount, predicted and direction. `income_override` is a monthly income the user typed in;
+    when > 0 it replaces money in for the 50/30/20 targets. `lang` ("en" or "id") picks the
+    language of the highlights and the disclaimer. Returns a JSON-serializable dict."""
     money_in = 0.0
     money_in_count = 0
     spend = []
@@ -252,34 +330,10 @@ def compute_insights(rows) -> dict:
     fee_rows = [r for r in spend if is_fee(r["description"])]
     fees = {"count": len(fee_rows), "total": _r(sum(r["amount"] for r in fee_rows))}
 
-    needs = sum(cat_totals.get(c, 0.0) for c in NEEDS)
-    wants = sum(cat_totals.get(c, 0.0) for c in WANTS)
-    basis, basis_amount = ("money_in", money_in) if money_in > 0 else ("total_out", total_out)
-    savings = net if money_in > 0 else None
-
-    def share(value):
-        return round(value / basis_amount, 4) if value is not None and basis_amount > 0 else None
-
-    budget = {
-        "needs": _r(needs),
-        "wants": _r(wants),
-        "savings": None if savings is None else _r(savings),
-        "unclassified_transfers": _r(transfers_out),
-        "basis": basis,
-        "basis_amount": _r(basis_amount),
-        "shares": {
-            "needs": share(needs),
-            "wants": share(wants),
-            "savings": share(savings),
-            "unclassified_transfers": share(transfers_out),
-        },
-        "targets": dict(TARGETS),
-        "mapping": {"needs": sorted(NEEDS), "wants": sorted(WANTS), "unclassified": [TRANSFER]},
-    }
-
     period = statement_period(dates)
     factor = 1 / max(period["days"] / DAYS_PER_MONTH, 1.0) if period["days"] else 1.0
     per_month = {c: _r(v * factor) for c, v in cat_totals.items()}
+    budget = _budget(cat_totals, money_in, total_out, factor, income_override)
 
     return {
         "cash_flow": cash,
@@ -289,6 +343,6 @@ def compute_insights(rows) -> dict:
         "budget_503020": budget,
         "period": period,
         "per_month": per_month,
-        "highlights": _highlights(cash, cat_totals, small, fees, top, budget),
-        "disclaimer": DISCLAIMER,
+        "highlights": _highlights(cash, cat_totals, small, fees, top, budget, lang),
+        "disclaimer": t(lang, "disclaimer"),
     }

@@ -32,9 +32,11 @@ Then open http://127.0.0.1:3000.
 - **Review flags** on low-confidence rows (threshold 0.6), with a "Next to review" filter and one-click "Looks right".
 - **Editable categories**, a donut chart and per-category totals; money coming in is shown but not counted as spending.
 - **Spending insights:** cash flow and savings rate, top merchants, small-spend and fee callouts, a 50/30/20 view and what-if sliders, updated as you correct categories.
+- **50/30/20 in Rupiah:** monthly targets for needs, wants and savings from your income (detected from money in, or typed in and never stored), with "Rp X left" / "Rp X over" per bucket.
 - **Reports** as CSV, Excel (summary sheet with a chart, plus an Insights sheet) or A4 PDF (with a Highlights section), all built in memory.
 - **Teach it your spending:** export your reviewed rows as labels and train a personal model from the CLI.
-- **Dark mode** that follows your system setting, with a bundled font (no external fonts or CDNs).
+- **English and Bahasa Indonesia:** an EN | ID switch for the whole UI, the highlights, error messages and the Excel/PDF reports. It starts in your browser's language.
+- **Light, dark or system theme** (System | Light | Dark switch, no flash on load), with a bundled font (no external fonts or CDNs).
 - **Self-hosted and locked down:** localhost-only ports, read-only non-root containers, no outbound calls.
 
 | Upload | Review | PDF report |
@@ -78,8 +80,8 @@ The Insights panel under the chart turns one statement into budgeting figures. E
 - **Top merchants:** the top 5 by total and by count, with the average payment. Names come from the cleaned description minus BCA boilerplate and reference numbers. Transfers are left out, since they are usually people.
 - **Small spends:** living-spend purchases under Rp 50,000, with their count, total and share of living spend.
 - **Fees:** rows matching bank fee phrases (`biaya adm`, `biaya transfer`, `biaya bi fast`, `admin fee`).
-- **50/30/20 view:** needs = bills + transport, wants = food + shopping, savings = net, as shares of money in (or of total out when there is no money in). Transfers are shown separately as unclassified, because they mix savings and payments.
-- **What-if sliders:** cut a category by 0–50% and see the saving per month and per year. Figures are scaled per month from the statement period; a statement shorter than a month counts as one month.
+- **50/30/20 view:** needs = bills + transport, wants = food + shopping. With an income it shows Rupiah targets per month (needs 50%, wants 30%, savings 20% of income), the actual amounts and the difference: "Rp 450.000 left" or "Rp 300.000 over" for needs and wants, "Rp X short of target" or "On track" for savings. The income is money in scaled to one month, or a monthly income you type into the card (CSV uploads have no money in); the typed value is sent with each insights and report request and never stored. Savings = income minus all money out, so transfers count as money out, not as savings; they are shown separately as unclassified, because they mix savings and payments. Without an income the card falls back to shares of total out.
+- **What-if sliders:** cut a category by 0–50% and see the saving per month and per year, and how far the food and shopping cuts move wants toward its target. Figures are scaled per month from the statement period; a statement shorter than a month counts as one month.
 - **Highlights:** 3–5 plain-English sentences ranked by Rupiah impact, also in the PDF report and the Excel Insights sheet.
 
 The defaults (the Rp 50,000 threshold and the needs/wants mapping) are constants at the top of `insights.py`. These are budgeting insights, not financial advice: the app never suggests financial products or investments.
@@ -115,6 +117,7 @@ Bank statements are sensitive, so privacy is a feature, not an afterthought. Ful
 - **In memory only:** uploads and reports are never written to disk; there is no database.
 - **Logs hold no transaction data:** only method, path, status, duration and row count.
 - **No outbound calls:** no analytics, external fonts or CDNs; Next.js telemetry is off.
+- **No financial data in browser storage:** the browser remembers only two UI preferences, `lang` and `theme`. A check script in CI fails on any other key or storage API.
 - **Localhost only:** ports are published on `127.0.0.1`, so other devices on your network can't reach the app.
 - **Locked-down containers:** read-only filesystem, non-root, all capabilities dropped, RAM-only `/tmp`.
 - **Synthetic shipped model:** your labels and personal models stay local and gitignored.
@@ -170,9 +173,9 @@ On startup the API trains a model in memory on the synthetic `data/sample_transa
 | Endpoint | What it does |
 |---|---|
 | `GET /api/health` | `{"status": "ok", "model": "synthetic" or "custom"}` |
-| `POST /api/classify?threshold=0.6` | Body: a BCA e-statement PDF (`application/pdf`) or a CSV (`text/csv`, or `application/octet-stream`, which is treated as CSV unless it starts with `%PDF-`) with a `description` column (`date` and `amount` optional), max 5 MB. Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule` or `model`), plus per-category totals. |
-| `POST /api/insights` | Body: `{"rows": [...]}`, same as `/api/report` (same caps and validation). Returns the insights for those rows: cash flow, top merchants, small spends, fees, the 50/30/20 view, per-month figures and highlights. `/api/classify` includes the same `insights` for the uploaded rows. |
-| `POST /api/report?format=csv` | Body: `{"rows": [...]}` (rows from `/api/classify`, with any corrected `predicted`). `format` is `csv` (default), `xlsx` or `pdf`. Capped at 10 MB and 50,000 rows. Validation errors return 422 with field locations only, never the submitted rows. |
+| `POST /api/classify?threshold=0.6&lang=en` | `lang` (`en` or `id`, default `en`; anything else is English) sets the language of the highlights, disclaimer and error messages here and on the two endpoints below. Body: a BCA e-statement PDF (`application/pdf`) or a CSV (`text/csv`, or `application/octet-stream`, which is treated as CSV unless it starts with `%PDF-`) with a `description` column (`date` and `amount` optional), max 5 MB. Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule` or `model`), plus per-category totals. |
+| `POST /api/insights?lang=en` | Body: `{"rows": [...], "income_override": 8000000}`, same as `/api/report` (same caps and validation). `income_override` is optional: a monthly income (a finite number from 0 to 10^12; 0 or missing means use money in) for the 50/30/20 Rupiah targets. Returns the insights for those rows: cash flow, top merchants, small spends, fees, the 50/30/20 view, per-month figures and highlights. `/api/classify` includes the same `insights` for the uploaded rows. |
+| `POST /api/report?format=csv&lang=en` | Body: `{"rows": [...], "income_override": 8000000}` (rows from `/api/classify`, with any corrected `predicted`; the income is optional, as above). `format` is `csv` (default), `xlsx` or `pdf`. Excel and PDF follow `lang`; CSV is a machine format and stays English. Capped at 10 MB and 50,000 rows. Validation errors return 422 with field locations only, never the submitted rows. |
 
 ```bash
 curl -X POST --data-binary @data/sample_transactions.csv -H "Content-Type: text/csv" http://127.0.0.1:8000/api/classify
@@ -194,7 +197,7 @@ python backend/classify.py predict data/sample_transactions.csv --out data/predi
 .venv\Scripts\python -m pytest backend/tests -q -p no:cacheprovider
 ```
 
-114 tests cover the pipeline, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+190 tests cover the pipeline, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, insights and 50/30/20 targets, both languages, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run check:i18n` (English and Indonesian have the same keys and placeholders), `npm run check:storage` (only `lang` and `theme` in browser storage), `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ### Project structure
 

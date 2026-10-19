@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 Category = Literal["food", "transport", "shopping", "bills", "transfer"]
 MAX_REPORT_ROWS = 50_000
+MAX_INCOME = 1e12
 
 
 class Row(BaseModel):
@@ -78,16 +79,38 @@ class BudgetShares(BaseModel):
     unclassified_transfers: float | None
 
 
+class BucketAmounts(BaseModel):
+    needs: float
+    wants: float
+    savings: float
+
+
+class ActualAmounts(BaseModel):
+    needs: float
+    wants: float
+    savings: float | None  # income - all money out, per month; None without an income
+
+
 class Budget503020(BaseModel):
+    """Amounts and shares are for the statement period; the *_amounts, income_monthly,
+    transfers_monthly and difference fields are per month (see classifier/insights.py)."""
+
     needs: float
     wants: float
     savings: float | None
     unclassified_transfers: float
-    basis: Literal["money_in", "total_out"]
+    basis: Literal["money_in", "income_override", "total_out"]
     basis_amount: float
     shares: BudgetShares
     targets: dict[str, float]
     mapping: dict[str, list[str]]
+    income_monthly: float | None
+    income_source: Literal["money_in", "override"] | None
+    target_amounts: BucketAmounts | None
+    actual_amounts: ActualAmounts
+    transfers_monthly: float
+    # target - actual. Needs/wants: positive = left under target. Savings: positive = short of target.
+    difference: BucketAmounts | None
 
 
 class Period(BaseModel):
@@ -128,6 +151,8 @@ class ReportRow(Row):
 
 class ReportRequest(BaseModel):
     rows: list[ReportRow] = Field(max_length=MAX_REPORT_ROWS)
+    # Monthly income typed in by the user, for the 50/30/20 targets. Never stored.
+    income_override: float | None = Field(None, ge=0, le=MAX_INCOME, allow_inf_nan=False)
 
 
 class Health(BaseModel):

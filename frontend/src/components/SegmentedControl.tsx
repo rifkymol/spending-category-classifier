@@ -7,6 +7,10 @@ export interface Segment<T extends string> {
   label: ReactNode;
   /** Shown as a small muted number after the label. */
   count?: number;
+  /** Accessible name when the visible label is an abbreviation (e.g. "EN" → "English"). */
+  ariaLabel?: string;
+  /** Language of the label, when it differs from the page's. */
+  lang?: string;
 }
 
 interface Props<T extends string> {
@@ -66,6 +70,8 @@ export default function SegmentedControl<T extends string>({ label, options, val
             type="button"
             role="radio"
             aria-checked={checked}
+            aria-label={o.ariaLabel}
+            lang={o.lang}
             tabIndex={checked ? 0 : -1}
             disabled={disabled}
             onClick={() => onChange(o.value)}

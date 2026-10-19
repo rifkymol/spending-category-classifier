@@ -282,8 +282,9 @@ def test_xlsx_insights_sheet(client):
     assert cells["Money in (IDR)"][0] == 10_000_000
     assert cells["Living spend (IDR)"][0] == 2_090_000
     assert cells["Transfers out (IDR)"][0] == 2_000_000
-    assert cells["Needs (bills + transport)"][:3] == (535_000, 0.0535, 0.5)
-    assert cells["Wants (food + shopping)"][0] == 1_555_000
+    # Target, Actual, Difference (per month), Share, Guideline
+    assert cells["Needs (bills + transport)"][:5] == (5_000_000, 535_000, 4_465_000, 0.0535, 0.5)
+    assert cells["Wants (food + shopping)"][1] == 1_555_000
     assert cells["Toko Serba Ada"][:2] == (1, 1_500_000)
     assert cells["Small spends total (IDR)"][0] == 90_000  # every living row under Rp 50.000, the fee too
     assert cells["Fee count"][0] == 1 and cells["Fees total (IDR)"][0] == 15_000

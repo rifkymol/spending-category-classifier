@@ -11,7 +11,8 @@ Money in (rows with direction CR, from bank PDFs) is not spending: the category 
 leave it out, and each report shows it on its own "Money in" line when there is any.
 
 The Excel and PDF reports also carry the insights from classifier.insights (an "Insights"
-sheet and a "Highlights" section). The CSV report does not.
+sheet and a "Highlights" section), and their headings and labels follow `lang` ("en" or
+"id", see classifier/i18n.py). The CSV report is a machine format: it stays English.
 """
 
 import csv
@@ -36,13 +37,15 @@ from reportlab.lib.enums import TA_RIGHT
 from reportlab.platypus import CondPageBreak, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.schemas import Row, Summary
+from classifier.i18n import category_name, t
 from classifier.insights import compute_insights
 
 FIELDS = list(Row.model_fields)
-TITLE = "Spending report"
-FOOTER = "Generated locally. No data left this computer."
+TITLE = t("en", "report_title")
+FOOTER = t("en", "report_footer")
 # 50/30/20 PDF table columns in mm; the A4 content width is 180 mm (15 mm margins).
-BUDGET_COL_MM = [62, 40, 30, 30]
+BUDGET_COL_MM = [50, 26, 26, 30, 22, 26]
+BUCKETS = [("needs", "bucket_needs_long"), ("wants", "bucket_wants_long"), ("savings", "bucket_savings_long")]
 
 # Must match CATEGORY_COLORS and OTHER_COLOR in frontend/src/lib/format.ts (a test checks this).
 CATEGORY_COLORS = {
@@ -72,7 +75,7 @@ def format_idr(value: float) -> str:
     return f"{sign}Rp {round(abs(value)):,}".replace(",", ".")
 
 
-def period(rows: list[Row]) -> str | None:
+def period(rows: list[Row], lang: str = "en") -> str | None:
     """'YYYY-MM-DD to YYYY-MM-DD' from the rows' dates, or None if none parse."""
     dates = [r.date for r in rows if r.date]
     if not dates:
@@ -86,18 +89,42 @@ def period(rows: list[Row]) -> str | None:
     parsed = parsed.dropna()
     if parsed.empty:
         return None
-    return f"{parsed.min().date().isoformat()} to {parsed.max().date().isoformat()}"
+    return t(lang, "period_range", start=parsed.min().date().isoformat(), end=parsed.max().date().isoformat())
 
 
 def _color(category: str) -> str:
     return CATEGORY_COLORS.get(category, OTHER_COLOR)
 
 
+def difference_text(bucket: str, difference: float | None, lang: str = "en") -> str:
+    """'Rp 450.000 left' / 'Rp 300.000 over' for needs and wants; 'Rp X short' / 'On track' for
+    savings. `difference` is target - actual (see classifier/insights.py)."""
+    if difference is None:
+        return "-"
+    if bucket == "savings":
+        return t(lang, "diff_short", amount=format_idr(difference)) if difference > 0 else t(lang, "diff_on_track")
+    if difference >= 0:
+        return t(lang, "diff_left", amount=format_idr(difference))
+    return t(lang, "diff_over", amount=format_idr(-difference))
+
+
+def income_line(budget: dict, lang: str = "en") -> str:
+    """'Income (per month): Rp X (detected from money in / entered)', or a note that there is none."""
+    if budget["income_monthly"] is None:
+        return t(lang, "income_none")
+    source = t(lang, "income_entered" if budget["income_source"] == "override" else "income_detected")
+    return t(lang, "income_line", amount=format_idr(budget["income_monthly"]), source=source)
+
+
+def _budget_caption(budget: dict, lang: str) -> str:
+    return t(lang, "budget_caption_income" if budget["income_monthly"] is not None else "budget_caption_total_out")
+
+
 # ---- CSV -------------------------------------------------------------------
 
 
 def report_csv(rows: list[Row], summary: Summary) -> str:
-    """Summary block, a blank line, then the row table."""
+    """Summary block, a blank line, then the row table. A machine format, so always English."""
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["category", "count", "total_amount", "share"])
@@ -128,12 +155,13 @@ _TX_WIDTHS = {"id": 6, "date": 12, "description": 42, "amount": 14, "direction":
               "confidence": 12, "needs_review": 14, "source": 9}
 
 
-def _insights_sheet(wb: Workbook, insights: dict) -> None:
-    ws = wb.create_sheet("Insights")
+def _insights_sheet(wb: Workbook, insights: dict, lang: str = "en") -> None:
+    ws = wb.create_sheet(t(lang, "sheet_insights"))
     bold = Font(bold=True)
     idr = "#,##0"
     pct = "0.0%"
-    ws.append(["Insights"])
+    cur = t(lang, "idr")
+    ws.append([t(lang, "insights")])
     ws["A1"].font = Font(bold=True, size=14)
     ws.append([_xl_text(insights["disclaimer"])])
 
@@ -152,96 +180,109 @@ def _insights_sheet(wb: Workbook, insights: dict) -> None:
             if fmt:
                 ws.cell(row=ws.max_row, column=col).number_format = fmt
 
+    def dash(value):
+        return value if value is not None else "-"
+
     cash = insights["cash_flow"]
-    section("Cash flow")
-    for label, key in [("Money in (IDR)", "money_in"), ("Total out (IDR)", "total_out"),
-                       ("Living spend (IDR)", "living_spend"), ("Transfers out (IDR)", "transfers_out"),
-                       ("Net (IDR)", "net")]:
-        add([label, cash[key]], [None, idr])
-    add(["Savings rate", cash["savings_rate"] if cash["savings_rate"] is not None else "-"], [None, pct])
+    section(t(lang, "cash_flow"))
+    for key in ["money_in", "total_out", "living_spend", "transfers_out", "net"]:
+        add([f"{t(lang, key)} ({cur})", cash[key]], [None, idr])
+    add([t(lang, "savings_rate"), dash(cash["savings_rate"])], [None, pct])
 
     budget = insights["budget_503020"]
-    basis = "money in" if budget["basis"] == "money_in" else "total out (no money in found)"
-    section("50/30/20 view", ["Bucket", "Amount (IDR)", "Share", "Guideline"])
-    for label, key in [("Needs (bills + transport)", "needs"), ("Wants (food + shopping)", "wants"),
-                       ("Savings (net)", "savings"), ("Transfers (unclassified)", "unclassified_transfers")]:
-        amount = budget[key]
-        share = budget["shares"][key]
-        target = budget["targets"].get(key)
-        add([label, amount if amount is not None else "-", share if share is not None else "-",
-             target if target is not None else "-"], [None, idr, pct, pct])
-    add([f"Shares of {basis}"], [None])
+    section(t(lang, "budget_view"), [
+        t(lang, "col_bucket"), f"{t(lang, 'col_target')} ({cur})", f"{t(lang, 'col_actual')} ({cur})",
+        f"{t(lang, 'col_difference')} ({cur})", t(lang, "col_share"), t(lang, "col_guideline"),
+    ])
+    targets = budget["target_amounts"] or {}
+    diff = budget["difference"] or {}
+    for key, label in BUCKETS:
+        add([t(lang, label), dash(targets.get(key)), dash(budget["actual_amounts"][key]), dash(diff.get(key)),
+             dash(budget["shares"][key]), budget["targets"][key]], [None, idr, idr, idr, pct, pct])
+    add([t(lang, "bucket_transfers_long"), "-", budget["transfers_monthly"], "-",
+         dash(budget["shares"]["unclassified_transfers"]), "-"], [None, None, idr, None, pct, None])
+    add([income_line(budget, lang)], [None])
+    add([_budget_caption(budget, lang)], [None])
+    if budget["difference"] is not None:
+        add([t(lang, "diff_note")], [None])
 
-    section("Top merchants by total", ["Merchant", "Count", "Total (IDR)", "Average (IDR)"])
+    section(t(lang, "top_merchants_total"), [
+        t(lang, "col_merchant"), t(lang, "col_count"), f"{t(lang, 'col_total')} ({cur})",
+        f"{t(lang, 'col_average')} ({cur})",
+    ])
     for m in insights["top_merchants"]["by_total"]:
         add([m["merchant"], m["count"], m["total"], m["avg"]], [None, None, idr, idr])
 
     small = insights["small_spends"]
-    section("Small spends")
-    add([f"Under {format_idr(small['threshold'])}: count", small["count"]], [None, None])
-    add(["Small spends total (IDR)", small["total"]], [None, idr])
-    add(["Share of living spend", small["share_of_living"] if small["share_of_living"] is not None else "-"],
-        [None, pct])
+    section(t(lang, "small_spends"))
+    add([t(lang, "small_under_count", threshold=format_idr(small["threshold"])), small["count"]], [None, None])
+    add([f"{t(lang, 'small_total')} ({cur})", small["total"]], [None, idr])
+    add([t(lang, "small_share"), dash(small["share_of_living"])], [None, pct])
 
     fees = insights["fees"]
-    section("Fees")
-    add(["Fee count", fees["count"]], [None, None])
-    add(["Fees total (IDR)", fees["total"]], [None, idr])
+    section(t(lang, "fees"))
+    add([t(lang, "fee_count"), fees["count"]], [None, None])
+    add([f"{t(lang, 'fees_total')} ({cur})", fees["total"]], [None, idr])
 
-    section("Highlights", ["Highlight", "Impact (IDR)"])
+    section(t(lang, "highlights"), [t(lang, "col_highlight"), f"{t(lang, 'col_impact')} ({cur})"])
     for h in insights["highlights"]:
         add([h["text"], h["impact_rp"]], [None, idr])
 
-    for col, width in zip("ABCD", (60, 16, 16, 16)):
+    for col, width in zip("ABCDEF", (60, 16, 16, 18, 10, 12)):
         ws.column_dimensions[col].width = width
 
 
-def report_xlsx(rows: list[Row], summary: Summary, insights: dict | None = None) -> bytes:
+def report_xlsx(rows: list[Row], summary: Summary, insights: dict | None = None, lang: str = "en") -> bytes:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Summary"
+    ws.title = t(lang, "sheet_summary")
     bold = Font(bold=True)
+    cur = t(lang, "idr")
 
-    ws["A1"] = TITLE
+    ws["A1"] = t(lang, "report_title")
     ws["A1"].font = Font(bold=True, size=14)
     info = [
-        ("Generated", date.today().isoformat()),
-        ("Period", period(rows) or "-"),
-        ("Total spend (IDR)", summary.total_amount),
-        ("Transactions", summary.total_rows),
-        ("Rows needing review", summary.needs_review),
+        (t(lang, "generated"), date.today().isoformat()),
+        (t(lang, "period"), period(rows, lang) or "-"),
+        (f"{t(lang, 'total_spend')} ({cur})", summary.total_amount),
+        (t(lang, "transactions"), summary.total_rows),
+        (t(lang, "rows_needing_review"), summary.needs_review),
     ]
     if summary.money_in_count:
-        info += [("Money in (IDR)", summary.money_in_total), ("Money-in transactions", summary.money_in_count)]
+        info += [(f"{t(lang, 'money_in')} ({cur})", summary.money_in_total),
+                 (t(lang, "money_in_transactions"), summary.money_in_count)]
     for i, (label, value) in enumerate(info, start=3):
         ws.cell(row=i, column=1, value=label).font = bold
         cell = ws.cell(row=i, column=2, value=_xl(value))
-        if label.endswith("(IDR)"):
+        if label.endswith(f"({cur})"):
             cell.number_format = "#,##0"
 
     header_row = 3 + len(info) + 1
-    for col, name in enumerate(["Category", "Count", "Total (IDR)", "Share"], start=1):
+    headers = [t(lang, "col_category"), t(lang, "col_count"), f"{t(lang, 'col_total')} ({cur})", t(lang, "col_share")]
+    for col, name in enumerate(headers, start=1):
         ws.cell(row=header_row, column=col, value=name).font = bold
     for i, c in enumerate(summary.by_category, start=header_row + 1):
-        ws.cell(row=i, column=1, value=_xl(c.category))
+        # English keeps the category keys (as before); other languages show the translated name.
+        ws.cell(row=i, column=1, value=_xl(c.category if lang == "en" else category_name(lang, c.category)))
         ws.cell(row=i, column=2, value=c.count)
         ws.cell(row=i, column=3, value=c.total_amount).number_format = "#,##0"
         ws.cell(row=i, column=4, value=c.share).number_format = "0.0%"
     last_row = header_row + len(summary.by_category)
-    for col, width in zip("ABCD", (22, 12, 16, 10)):
+    for col, width in zip("ABCD", (24, 12, 16, 10)):
         ws.column_dimensions[col].width = width
 
     if summary.by_category:
         # Pie of totals by category; by count when the upload has no amounts.
         value_col = 3 if summary.total_amount > 0 else 2
         chart = PieChart()
-        chart.title = "Spend by category" if value_col == 3 else "Transactions by category"
+        chart.title = t(lang, "spend_by_category" if value_col == 3 else "transactions_by_category")
         chart.add_data(Reference(ws, min_col=value_col, min_row=header_row, max_row=last_row), titles_from_data=True)
         chart.set_categories(Reference(ws, min_col=1, min_row=header_row + 1, max_row=last_row))
         chart.height, chart.width = 9, 12
         ws.add_chart(chart, "F3")
 
-    tx = wb.create_sheet("Transactions")
+    # Column names and values stay as the API's field names and category keys: a machine-readable table.
+    tx = wb.create_sheet(t(lang, "sheet_transactions"))
     tx.append(FIELDS)
     for cell in tx[1]:
         cell.font = bold
@@ -259,7 +300,7 @@ def report_xlsx(rows: list[Row], summary: Summary, insights: dict | None = None)
     tx.freeze_panes = "A2"
     tx.auto_filter.ref = tx.dimensions
 
-    _insights_sheet(wb, insights if insights is not None else compute_insights(rows))
+    _insights_sheet(wb, insights if insights is not None else compute_insights(rows, lang=lang), lang)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -269,7 +310,7 @@ def report_xlsx(rows: list[Row], summary: Summary, insights: dict | None = None)
 # ---- PDF -------------------------------------------------------------------
 
 
-def _pie(summary: Summary) -> Drawing | None:
+def _pie(summary: Summary, lang: str = "en") -> Drawing | None:
     by_amount = summary.total_amount > 0
     slices = [(c.category, c.total_amount if by_amount else c.count) for c in summary.by_category]
     slices = [(name, value) for name, value in slices if value > 0]
@@ -300,19 +341,21 @@ def _pie(summary: Summary) -> Drawing | None:
     legend.dy = legend.dx = 8
     legend.deltay = 14
     legend.colorNamePairs = [
-        (colors.HexColor(_color(name)), f"{name.capitalize()}  {value / total:.1%}") for name, value in slices
+        (colors.HexColor(_color(name)), f"{category_name(lang, name)}  {value / total:.1%}") for name, value in slices
     ]
     drawing.add(legend)
     return drawing
 
 
-def _footer(canvas, doc) -> None:
-    canvas.saveState()
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(colors.HexColor("#64748b"))
-    canvas.drawString(doc.leftMargin, 10 * mm, FOOTER)
-    canvas.drawRightString(A4[0] - doc.rightMargin, 10 * mm, f"Page {doc.page}")
-    canvas.restoreState()
+def _footer(lang: str):
+    def draw(canvas, doc) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(colors.HexColor("#64748b"))
+        canvas.drawString(doc.leftMargin, 10 * mm, t(lang, "report_footer"))
+        canvas.drawRightString(A4[0] - doc.rightMargin, 10 * mm, t(lang, "page", n=doc.page))
+        canvas.restoreState()
+    return draw
 
 
 _GRID = [
@@ -334,14 +377,14 @@ def _table(data: list[list], widths_mm: list[float], cell, right_from: int = 1) 
     head = cell.clone("head", fontName="Helvetica-Bold")
     head_right = head.clone("head_right", alignment=TA_RIGHT)
     header = [Paragraph(escape(str(h)), head_right if i >= right_from else head) for i, h in enumerate(data[0])]
-    t = Table([header] + data[1:], colWidths=[w * mm for w in widths_mm], repeatRows=1, hAlign="LEFT")
-    t.setStyle(TableStyle(_GRID + [("ALIGN", (right_from, 0), (-1, -1), "RIGHT")]))
-    return t
+    t_ = Table([header] + data[1:], colWidths=[w * mm for w in widths_mm], repeatRows=1, hAlign="LEFT")
+    t_.setStyle(TableStyle(_GRID + [("ALIGN", (right_from, 0), (-1, -1), "RIGHT")]))
+    return t_
 
 
-def _budget_table(budget: dict, cell) -> list:
-    """The 50/30/20 table (short headers, widths that fit A4) plus a caption naming the share basis."""
-    basis = "money in" if budget["basis"] == "money_in" else "total out (no money in found)"
+def _budget_table(budget: dict, cell, lang: str = "en") -> list:
+    """The 50/30/20 table (Target, Actual and Difference per month, share and guideline, with
+    widths that fit A4), the income line and a caption."""
 
     def money(value):
         return format_idr(value) if value is not None else "-"
@@ -349,28 +392,41 @@ def _budget_table(budget: dict, cell) -> list:
     def share(value):
         return f"{value:.1%}" if value is not None else "-"
 
-    table = [["50/30/20 view", "Amount", "Share", "Guideline"]]
-    for label, key in [("Needs (bills + transport)", "needs"), ("Wants (food + shopping)", "wants"),
-                       ("Savings (net)", "savings"), ("Transfers (unclassified)", "unclassified_transfers")]:
-        table.append([label, money(budget[key]), share(budget["shares"][key]), share(budget["targets"].get(key))])
+    right = cell.clone("cell_right", alignment=TA_RIGHT)
+    targets = budget["target_amounts"] or {}
+    diff = budget["difference"] or {}
+    table = [[t(lang, "budget_view"), t(lang, "col_target"), t(lang, "col_actual"), t(lang, "col_difference"),
+              t(lang, "col_share"), t(lang, "col_guideline")]]
+    for key, label in BUCKETS:
+        table.append([
+            Paragraph(escape(t(lang, label)), cell), money(targets.get(key)), money(budget["actual_amounts"][key]),
+            Paragraph(escape(difference_text(key, diff.get(key), lang)), right),
+            share(budget["shares"][key]), share(budget["targets"][key]),
+        ])
+    table.append([Paragraph(escape(t(lang, "bucket_transfers_long")), cell), "-", money(budget["transfers_monthly"]),
+                  "-", share(budget["shares"]["unclassified_transfers"]), "-"])
     caption = cell.clone("caption", fontSize=7, leading=9, textColor=colors.HexColor("#64748b"))
-    return [_table(table, BUDGET_COL_MM, cell), Spacer(1, 1 * mm), Paragraph(f"Share = share of {basis}.", caption)]
+    return [
+        Paragraph(escape(income_line(budget, lang)), cell), Spacer(1, 1 * mm),
+        _table(table, BUDGET_COL_MM, cell), Spacer(1, 1 * mm),
+        Paragraph(escape(_budget_caption(budget, lang)), caption),
+    ]
 
 
-def _highlights_story(insights: dict, styles, cell) -> list:
+def _highlights_story(insights: dict, styles, cell, lang: str = "en") -> list:
     body = styles["BodyText"]
     if insights["highlights"]:
         items = [Paragraph(f"{i}. {escape(h['text'])}", body) for i, h in enumerate(insights["highlights"], start=1)]
     else:
-        items = [Paragraph("Not enough amounts in this statement for highlights.", body)]
-    story = [KeepTogether([Paragraph("Highlights", styles["Heading2"]), *items]), Spacer(1, 3 * mm)]
+        items = [Paragraph(escape(t(lang, "no_highlights")), body)]
+    story = [KeepTogether([Paragraph(escape(t(lang, "highlights")), styles["Heading2"]), *items]), Spacer(1, 3 * mm)]
 
     # KeepTogether: a table header never sits alone at the bottom of a page.
-    story += [KeepTogether(_budget_table(insights["budget_503020"], cell)), Spacer(1, 3 * mm)]
+    story += [KeepTogether(_budget_table(insights["budget_503020"], cell, lang)), Spacer(1, 3 * mm)]
 
     merchants = insights["top_merchants"]["by_total"]
     if merchants:
-        rows = [["Top merchants by total", "Count", "Total", "Average"]] + [
+        rows = [[t(lang, "top_merchants_total"), t(lang, "col_count"), t(lang, "col_total"), t(lang, "col_average")]] + [
             [Paragraph(escape(m["merchant"]), cell), str(m["count"]), format_idr(m["total"]), format_idr(m["avg"])]
             for m in merchants
         ]
@@ -380,64 +436,70 @@ def _highlights_story(insights: dict, styles, cell) -> list:
     return story
 
 
-def report_pdf(rows: list[Row], summary: Summary, insights: dict | None = None) -> bytes:
+def report_pdf(rows: list[Row], summary: Summary, insights: dict | None = None, lang: str = "en") -> bytes:
     styles = getSampleStyleSheet()
     body = styles["BodyText"]
     cell = body.clone("cell", fontName="Helvetica", fontSize=8, leading=10)
     has_amounts = summary.total_amount > 0
+    title = t(lang, "report_title")
 
     story = [
-        Paragraph(TITLE, styles["Title"]),
-        Paragraph(f"Generated {date.today().isoformat()}", body),
-        Paragraph(f"Period: {escape(period(rows) or '-')}", body),
-        Paragraph(f"Total spend: <b>{format_idr(summary.total_amount) if has_amounts else '-'}</b>", body),
-        Paragraph(f"Transactions: {summary.total_rows:,}".replace(",", "."), body),
-        Paragraph(f"Needs review: {summary.needs_review:,}".replace(",", "."), body),
+        Paragraph(escape(title), styles["Title"]),
+        Paragraph(escape(t(lang, "generated_on", date=date.today().isoformat())), body),
+        Paragraph(f"{escape(t(lang, 'period'))}: {escape(period(rows, lang) or '-')}", body),
+        Paragraph(f"{escape(t(lang, 'total_spend'))}: <b>{format_idr(summary.total_amount) if has_amounts else '-'}</b>",
+                  body),
+        Paragraph(f"{escape(t(lang, 'transactions'))}: {summary.total_rows:,}".replace(",", "."), body),
+        Paragraph(f"{escape(t(lang, 'needs_review'))}: {summary.needs_review:,}".replace(",", "."), body),
     ]
     if summary.money_in_count:
-        story.append(Paragraph(
-            f"Money in: {format_idr(summary.money_in_total)} "
-            f"({summary.money_in_count} transactions, not counted as spend)", body))
+        story.append(Paragraph(escape(t(lang, "money_in_line", amount=format_idr(summary.money_in_total),
+                                        count=summary.money_in_count)), body))
     story.append(Spacer(1, 6 * mm))
 
-    pie = _pie(summary)
+    pie = _pie(summary, lang)
     if pie is not None:
-        heading = "Share of spend by category" if has_amounts else "Share of transactions by category"
-        story += [KeepTogether([Paragraph(heading, styles["Heading2"]), pie]), Spacer(1, 4 * mm)]
+        heading = t(lang, "share_by_category_amount" if has_amounts else "share_by_category_count")
+        story += [KeepTogether([Paragraph(escape(heading), styles["Heading2"]), pie]), Spacer(1, 4 * mm)]
 
-    totals = [["Category", "Count", "Total", "Share"]] + [
-        [c.category.capitalize(), str(c.count), format_idr(c.total_amount) if has_amounts else "-", f"{c.share:.1%}"]
+    totals = [[t(lang, "col_category"), t(lang, "col_count"), t(lang, "col_total"), t(lang, "col_share")]] + [
+        [category_name(lang, c.category), str(c.count), format_idr(c.total_amount) if has_amounts else "-",
+         f"{c.share:.1%}"]
         for c in summary.by_category
     ]
     totals_table = _table(totals, [45, 20, 40, 20], cell)
-    story += [KeepTogether([Paragraph("Totals by category", styles["Heading2"]), totals_table]), Spacer(1, 6 * mm)]
-    story += _highlights_story(insights if insights is not None else compute_insights(rows), styles, cell)
+    story += [KeepTogether([Paragraph(escape(t(lang, "totals_by_category")), styles["Heading2"]), totals_table]),
+              Spacer(1, 6 * mm)]
+    story += _highlights_story(insights if insights is not None else compute_insights(rows, lang=lang),
+                               styles, cell, lang)
 
-    tx = [["Date", "Description", "Amount", "Category", "Source"]] + [
+    tx = [[t(lang, "col_date"), t(lang, "col_description"), t(lang, "col_amount"), t(lang, "col_category"),
+           t(lang, "col_source")]] + [
         [
             r.date or "",
             Paragraph(escape(r.description), cell),
             ("+" if r.direction == "CR" else "") + format_idr(r.amount) if r.amount is not None else "",
-            r.predicted + (" *" if r.needs_review else ""),
-            r.source,
+            category_name(lang, r.predicted) + (" *" if r.needs_review else ""),
+            t(lang, f"src_{r.source}"),
         ]
         for r in rows
     ]
-    tx_table = Table(tx, colWidths=[22 * mm, 80 * mm, 28 * mm, 24 * mm, 16 * mm], repeatRows=1, hAlign="LEFT")
+    tx_table = Table(tx, colWidths=[22 * mm, 78 * mm, 28 * mm, 30 * mm, 22 * mm], repeatRows=1, hAlign="LEFT")
     tx_table.setStyle(TableStyle(_GRID + [("ALIGN", (2, 0), (2, -1), "RIGHT")]))
     story += [
         # Start a new page unless the heading, note, header row and a few rows fit here.
         CondPageBreak(45 * mm),
-        Paragraph("Transactions", styles["Heading2"]),
-        Paragraph("* needs review" + ("; + money in" if summary.money_in_count else ""), cell),
+        Paragraph(escape(t(lang, "transactions")), styles["Heading2"]),
+        Paragraph(escape(t(lang, "review_note") + (t(lang, "money_in_note") if summary.money_in_count else "")), cell),
         Spacer(1, 2 * mm),
         tx_table,
     ]
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf, pagesize=A4, title=TITLE, author="", creator="", subject="",
+        buf, pagesize=A4, title=title, author="", creator="", subject="",
         leftMargin=15 * mm, rightMargin=15 * mm, topMargin=15 * mm, bottomMargin=18 * mm,
     )
-    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    footer = _footer(lang)
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()

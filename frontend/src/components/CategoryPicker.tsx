@@ -11,6 +11,8 @@ interface Props {
   onChange: (value: string) => void;
   /** Accessible name, e.g. "Category for GRAB*FOOD". */
   label: string;
+  /** Display name of an option (e.g. a translated category name); the values stay as they are. */
+  optionLabel?: (value: string) => string;
 }
 
 const MENU_GAP = 4;
@@ -24,7 +26,7 @@ type Position = { left: number; top?: number; bottom?: number };
  * The popover is portalled to <body> with fixed positioning, so a scrolling table never clips it;
  * it flips upward when there is no room below the trigger.
  */
-export default function CategoryPicker({ value, options, onChange, label }: Props) {
+export default function CategoryPicker({ value, options, onChange, label, optionLabel = (v) => v }: Props) {
   const id = useId();
   const labelId = `${id}-label`;
   const buttonId = `${id}-button`;
@@ -132,7 +134,7 @@ export default function CategoryPicker({ value, options, onChange, label }: Prop
           const key = e.key.toLowerCase();
           for (let step = 1; step <= all.length; step++) {
             const i = (active + step) % all.length;
-            if (all[i].toLowerCase().startsWith(key)) {
+            if (optionLabel(all[i]).toLowerCase().startsWith(key)) {
               setActive(i);
               break;
             }
@@ -159,7 +161,7 @@ export default function CategoryPicker({ value, options, onChange, label }: Prop
         className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-line bg-surface py-1 pl-2.5 pr-1.5 text-sm capitalize text-ink transition-colors duration-150 hover:border-line-strong"
       >
         <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(value) }} />
-        {value}
+        {optionLabel(value)}
         <ChevronDownIcon className={`h-3.5 w-3.5 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
       </button>
       {open &&
@@ -196,7 +198,7 @@ export default function CategoryPicker({ value, options, onChange, label }: Prop
                 }`}
               >
                 <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(option) }} />
-                <span className="flex-1">{option}</span>
+                <span className="flex-1">{optionLabel(option)}</span>
                 {option === value && <CheckIcon className="h-4 w-4 text-accent" />}
               </li>
             ))}

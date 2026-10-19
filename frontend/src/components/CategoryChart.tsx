@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import BarList from "./BarList";
-import { colorFor, formatIDR, formatPercent } from "@/lib/format";
+import { colorFor, formatIDR } from "@/lib/format";
+import { useLocale } from "@/lib/i18n";
 import type { Summary } from "@/lib/types";
 
 interface Props {
@@ -23,6 +24,7 @@ const tooltipStyle = {
 
 /** A slim donut with a center label, next to a ranked bar list that doubles as the legend. */
 export default function CategoryChart({ summary, byAmount }: Props) {
+  const { t, tc, percent, category } = useLocale();
   const [active, setActive] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // How the user last interacted: touch taps toggle the highlight; mouse hover and keyboard focus
@@ -54,16 +56,16 @@ export default function CategoryChart({ summary, byAmount }: Props) {
   );
   const items = ranked.map((c) => ({
     key: c.category,
-    label: <span className="capitalize">{c.category}</span>,
+    label: category(c.category),
     value: byAmount ? c.total_amount : c.count,
     display: byAmount ? formatIDR(c.total_amount) : `${c.count}`,
-    sub: `${c.count} ${c.count === 1 ? "transaction" : "transactions"} · ${formatPercent(c.share)}`,
+    sub: `${tc("chart.transactions", c.count)} · ${percent(c.share)}`,
     color: colorFor(c.category),
   }));
 
-  if (data.length === 0) return <p className="mt-4 text-sm text-muted">Nothing to chart.</p>;
+  if (data.length === 0) return <p className="mt-4 text-sm text-muted">{t("chart.empty")}</p>;
 
-  const description = data.map((d) => `${d.name} ${formatPercent(d.share)}`).join(", ");
+  const description = data.map((d) => `${category(d.name)} ${percent(d.share)}`).join(", ");
   const center = data.find((d) => d.name === active) ?? data[0];
 
   return (
@@ -87,7 +89,7 @@ export default function CategoryChart({ summary, byAmount }: Props) {
       <figure
         className="relative mx-auto aspect-square w-full max-w-60"
         role="img"
-        aria-label={`Donut chart: ${description}`}
+        aria-label={t("chart.aria", { description })}
         onPointerLeave={(e) => {
           // Recharts may miss the slice's mouseleave on a fast exit; leaving the donut clears it too.
           if (e.pointerType !== "touch") setActive(null);
@@ -117,9 +119,9 @@ export default function CategoryChart({ summary, byAmount }: Props) {
               contentStyle={tooltipStyle}
               itemStyle={{ color: "var(--color-ink)", padding: 0 }}
               formatter={(value, name, item) => {
-                const share = formatPercent((item?.payload as { share: number }).share);
-                const shown = byAmount ? formatIDR(Number(value)) : `${value} transactions`;
-                return [`${shown} (${share})`, String(name)];
+                const share = percent((item?.payload as { share: number }).share);
+                const shown = byAmount ? formatIDR(Number(value)) : tc("chart.transactions", Number(value));
+                return [`${shown} (${share})`, category(String(name))];
               }}
             />
           </PieChart>
@@ -128,10 +130,10 @@ export default function CategoryChart({ summary, byAmount }: Props) {
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center"
         >
-          <span className="text-3xl font-semibold tabular-nums tracking-tight">{formatPercent(center.share)}</span>
-          <span className="mt-0.5 flex items-center gap-1.5 text-sm capitalize text-muted">
+          <span className="text-3xl font-semibold tabular-nums tracking-tight">{percent(center.share)}</span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-sm text-muted">
             <span className="h-2 w-2 rounded-full" style={{ background: colorFor(center.name) }} />
-            {center.name}
+            {category(center.name)}
           </span>
         </figcaption>
       </figure>

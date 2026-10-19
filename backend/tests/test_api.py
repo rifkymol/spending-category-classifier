@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = ROOT / "data" / "sample_transactions.csv"
 CSV_HEADERS = {"Content-Type": "text/csv"}
 # Never walked: real statements live in data/raw/.
-SKIP_DIRS = {".venv", "__pycache__", ".git", ".pytest_cache"}
+# .next and node_modules belong to the frontend: a running Next server writes its cache there.
+SKIP_DIRS = {".venv", "__pycache__", ".git", ".pytest_cache", ".next", "node_modules"}
 
 
 @pytest.fixture(scope="module")

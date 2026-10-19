@@ -159,19 +159,73 @@ def test_pdf_budget_table_fits_a4(client):
     sample = post_csv(client, SAMPLE.read_bytes()).json()["rows"]
     budget = compute_insights([Row(**r) for r in sample])["budget_503020"]
     cell = getSampleStyleSheet()["BodyText"].clone("cell", fontSize=8, leading=10)
-    table, _, caption = _budget_table(budget, cell)
+    income, _, table, _, caption = _budget_table(budget, cell)
     assert table._colWidths == [w * mm for w in BUDGET_COL_MM]
     assert sum(table._colWidths) <= 180 * mm  # A4 width minus 15 mm margins
-    assert [p.text for p in table._cellvalues[0]] == ["50/30/20 view", "Amount", "Share", "Guideline"]
+    assert [p.text for p in table._cellvalues[0]] == [
+        "50/30/20 view", "Target", "Actual", "Difference", "Share", "Guideline"]
     assert table.repeatRows == 1
-    assert caption.text == "Share = share of total out (no money in found)."
+    assert income.text.startswith("Income (per month): not available")
+    assert caption.text == "Actual is per month. Share = share of total out (no income found)."
 
 
 def test_pdf_headers_do_not_run_together(client, rows):
     text = "\n".join(pdf_pages(get_report(client, rows, "pdf").content))
-    assert "50/30/20 view Amount Share Guideline" in text
-    assert "AmountShare" not in text
-    assert "Share = share of total out (no money in found)." in text
+    assert "50/30/20 view Target Actual Difference Share Guideline" in text
+    assert "TargetActual" not in text
+    assert "Actual is per month. Share = share of total out (no income found)." in text
+
+
+def test_reports_with_income_override_have_target_columns(client, rows):
+    """A CSV upload has no money in; an entered income gives the PDF and Excel Rupiah targets."""
+    body = {"rows": rows, "income_override": 10_000_000}
+    pdf = client.post("/api/report", json=body, params={"format": "pdf"})
+    assert pdf.status_code == 200
+    text = "\n".join(pdf_pages(pdf.content))
+    assert "Income (per month): Rp 10.000.000 (entered)" in text
+    assert "Rp 5.000.000" in text and "Rp 3.000.000" in text and "Rp 2.000.000" in text  # 50/30/20 targets
+    assert re.search(r"Rp [\d.]+ (left|over)", text)
+
+    xlsx = client.post("/api/report", json=body, params={"format": "xlsx"})
+    ws = load_workbook(io.BytesIO(xlsx.content))["Insights"]
+    cells = {r[0]: r[1:] for r in ws.iter_rows(values_only=True) if r and r[0] is not None}
+    assert cells["Bucket"][:5] == ("Target (IDR)", "Actual (IDR)", "Difference (IDR)", "Share", "Guideline")
+    budget = compute_insights([Row(**r) for r in rows], 10_000_000)["budget_503020"]
+    needs = cells["Needs (bills + transport)"]
+    assert needs[0] == 5_000_000
+    assert needs[1] == pytest.approx(budget["actual_amounts"]["needs"])
+    assert needs[2] == pytest.approx(5_000_000 - budget["actual_amounts"]["needs"])
+    assert "Income (per month): Rp 10.000.000 (entered)" in cells
+
+
+def test_reports_in_indonesian(client, rows):
+    body = {"rows": rows, "income_override": 10_000_000}
+    pdf = client.post("/api/report", json=body, params={"format": "pdf", "lang": "id"})
+    text = "\n".join(pdf_pages(pdf.content))
+    for phrase in ["Laporan pengeluaran", "Sorotan", "Tampilan 50/30/20", "Target Aktual Selisih",
+                   "Pendapatan (per bulan): Rp 10.000.000 (diisi manual)", "Wawasan anggaran, bukan nasihat keuangan.",
+                   "Makanan", "Tanggal Keterangan Nominal Kategori Sumber", "Halaman 1"]:
+        assert phrase in text, phrase
+    assert "Spending report" not in text and "Highlights" not in text
+
+    xlsx = client.post("/api/report", json=body, params={"format": "xlsx", "lang": "id"})
+    wb = load_workbook(io.BytesIO(xlsx.content))
+    assert wb.sheetnames == ["Ringkasan", "Transaksi", "Wawasan"]
+    cells = {r[0]: r[1:] for r in wb["Wawasan"].iter_rows(values_only=True) if r and r[0] is not None}
+    assert "Kebutuhan (tagihan + transportasi)" in cells and "Arus kas" in cells
+    assert "Wawasan anggaran, bukan nasihat keuangan." in cells
+    summary_labels = [r[0] for r in wb["Ringkasan"].iter_rows(values_only=True)]
+    assert "Makanan" in summary_labels and "Total pengeluaran (IDR)" in summary_labels
+
+    # The CSV report is a machine format: English headers and category keys in both languages.
+    csv_en = client.post("/api/report", json=body, params={"format": "csv"}).text
+    assert client.post("/api/report", json=body, params={"format": "csv", "lang": "id"}).text == csv_en
+
+
+def test_invalid_lang_falls_back_to_english(client, rows):
+    resp = client.post("/api/report", json={"rows": rows}, params={"format": "pdf", "lang": "fr"})
+    assert resp.status_code == 200
+    assert "Spending report" in pdf_pages(resp.content)[0]
 
 
 def test_pdf_transaction_header_repeats_on_every_page(client, rows):

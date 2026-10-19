@@ -3,22 +3,25 @@
 import { useId, useRef, useState } from "react";
 import { LockIcon, UploadIcon } from "./icons";
 import { classify, isPdf, MAX_BYTES } from "@/lib/api";
+import { useLocale, type Locale, type MessageKey } from "@/lib/i18n";
 import type { ClassifyResponse } from "@/lib/types";
 
 interface Props {
-  onResult: (result: ClassifyResponse, fileName: string) => void;
+  /** `locale` is the language the response's insights were written in. */
+  onResult: (result: ClassifyResponse, fileName: string, locale: Locale) => void;
 }
 
-function validate(file: File): string | null {
-  if (!file.name.toLowerCase().endsWith(".csv") && !isPdf(file)) return "Please choose a .pdf or .csv file.";
-  if (file.size > MAX_BYTES) return "That file is larger than 5 MB.";
-  if (file.size === 0) return "That file is empty.";
+function validate(file: File): MessageKey | null {
+  if (!file.name.toLowerCase().endsWith(".csv") && !isPdf(file)) return "upload.errType";
+  if (file.size > MAX_BYTES) return "upload.errSize";
+  if (file.size === 0) return "upload.errEmpty";
   return null;
 }
 
 const code = "rounded bg-subtle px-1 py-px font-mono text-[0.85em] text-ink-2";
 
 export default function Upload({ onResult }: Props) {
+  const { locale, t, rich } = useLocale();
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -29,15 +32,15 @@ export default function Upload({ onResult }: Props) {
     if (!file || loading) return;
     const problem = validate(file);
     if (problem) {
-      setError(problem);
+      setError(t(problem));
       return;
     }
     setError(null);
     setLoading(true);
     try {
-      onResult(await classify(file), file.name);
+      onResult(await classify(file, locale), file.name, locale);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      setError(e instanceof Error ? e.message : t("upload.errGeneric"));
     } finally {
       setLoading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -49,13 +52,13 @@ export default function Upload({ onResult }: Props) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 id="upload-heading" className="text-3xl font-semibold tracking-tight sm:text-4xl">
-            Upload a statement
+            {t("upload.heading")}
           </h2>
-          <p className="mt-2 text-ink-2">A BCA e-statement PDF or a CSV.</p>
+          <p className="mt-2 text-ink-2">{t("upload.sub")}</p>
         </div>
         <p className="inline-flex items-center gap-1.5 self-start rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent sm:self-auto">
           <LockIcon className="h-3.5 w-3.5" />
-          Processed on this computer, never stored
+          {t("upload.privacy")}
         </p>
       </div>
 
@@ -78,7 +81,7 @@ export default function Upload({ onResult }: Props) {
         {loading ? (
           <span role="status" className="flex items-center gap-3 text-ink-2">
             <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-line-strong border-t-accent" />
-            Classifying transactions…
+            {t("upload.loading")}
           </span>
         ) : (
           <>
@@ -90,12 +93,14 @@ export default function Upload({ onResult }: Props) {
             >
               <UploadIcon className="h-6 w-6" />
             </span>
-            <span className="mt-4 font-medium text-ink">
-              {dragging ? "Drop to classify" : "Drop a PDF or CSV here, or click to choose one"}
-            </span>
+            <span className="mt-4 font-medium text-ink">{dragging ? t("upload.drop") : t("upload.prompt")}</span>
             <span className="mt-2 max-w-md text-sm text-muted">
-              PDF: a BCA e-statement without a password. CSV: needs a <code className={code}>description</code> column;{" "}
-              <code className={code}>date</code> and <code className={code}>amount</code> are optional. Max 5 MB.
+              {/* Column names are the CSV's own headers, so they stay English. */}
+              {rich("upload.help", {
+                description: <code className={code}>description</code>,
+                date: <code className={code}>date</code>,
+                amount: <code className={code}>amount</code>,
+              })}
             </span>
           </>
         )}
@@ -117,15 +122,17 @@ export default function Upload({ onResult }: Props) {
       )}
 
       <p className="mt-6 text-sm text-muted">
-        No statement handy?{" "}
-        <a
-          href="/sample.csv"
-          download="sample_transactions.csv"
-          className="focus-ring rounded-sm font-medium text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
-        >
-          Download a synthetic sample CSV
-        </a>{" "}
-        and upload it.
+        {rich("upload.sample", {
+          link: (
+            <a
+              href="/sample.csv"
+              download="sample_transactions.csv"
+              className="focus-ring rounded-sm font-medium text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
+            >
+              {t("upload.sampleLink")}
+            </a>
+          ),
+        })}
       </p>
     </section>
   );
