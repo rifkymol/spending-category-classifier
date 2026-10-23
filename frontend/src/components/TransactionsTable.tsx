@@ -1,6 +1,6 @@
 "use client";
 
-import CategoryPicker from "./CategoryPicker";
+import CategoryPicker, { type PickerGroup } from "./CategoryPicker";
 import SegmentedControl from "./SegmentedControl";
 import { CheckIcon } from "./icons";
 import { labelsCsv, labelsFileName } from "@/lib/csv";
@@ -8,7 +8,8 @@ import { saveBlob } from "@/lib/download";
 import { formatIDR } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { isFlagged, isMoneyIn, reviewProgress } from "@/lib/summary";
-import { CATEGORIES, type Row } from "@/lib/types";
+import { CATEGORIES, GROUPS, groupOf, inGroup } from "@/lib/categories";
+import type { Row } from "@/lib/types";
 
 interface Actions {
   onRelabel: (id: number, category: string) => void;
@@ -32,14 +33,25 @@ function exportLabels(rows: Row[]) {
 
 export const badge = "ml-2 inline-block rounded-full px-1.5 py-px align-[1px] text-[11px] font-medium";
 
+/** The picker's groups (Needs / Wants / Transfers); a value that is no known category gets an "Other" group. */
+function usePickerGroups(value: string): PickerGroup[] {
+  const { t, group } = useLocale();
+  const groups: PickerGroup[] = GROUPS.map((g) => ({ key: g.key, label: group(g.key), color: g.color, options: inGroup(g.key) }));
+  if (!CATEGORIES.includes(value) && groupOf(value) === undefined) {
+    groups.push({ key: "other", label: t("picker.other"), options: [value] });
+  }
+  return groups;
+}
+
 /** The category picker plus, for rows still under review, the "Looks right" pill. */
 export function CategoryCell({ row, onRelabel, onConfirm }: { row: Row } & Actions) {
   const { t, category } = useLocale();
+  const groups = usePickerGroups(row.predicted);
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex max-w-[16rem] items-center gap-1.5">
       <CategoryPicker
         value={row.predicted}
-        options={CATEGORIES}
+        groups={groups}
         onChange={(c) => onRelabel(row.id, c)}
         label={t("tx.categoryFor", { description: row.description })}
         optionLabel={category}
@@ -164,7 +176,7 @@ export default function TransactionsTable({ rows, onRelabel, onConfirm, filter, 
                       {percent(r.confidence)}
                     </td>
                     <td className="hidden py-3 pr-3 text-xs text-muted md:table-cell">
-                      {t(r.source === "rule" ? "tx.source.rule" : "tx.source.model")}
+                      {t(`tx.source.${r.source}`)}
                     </td>
                   </tr>
                 );

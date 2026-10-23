@@ -1,40 +1,41 @@
 """User-facing backend text in English and Indonesian: highlights, the disclaimer, the
-50/30/20 labels, report headings and labels, and API error messages.
+50/30/20 labels (category and group names come from categories.py), report headings and labels, and API error messages.
 
 `lang` is "en" or "id"; anything else falls back to English. Rupiah amounts are always
 written id-ID style ("Rp 1.234.567") in both languages. A test checks that both
 dictionaries have the same keys.
 """
 
+from . import categories
+
 LANGS = ("en", "id")
 DEFAULT_LANG = "en"
 
 STRINGS: dict[str, dict[str, str]] = {
     "en": {
-        # categories and buckets
-        "cat_food": "Food",
-        "cat_transport": "Transport",
-        "cat_shopping": "Shopping",
-        "cat_bills": "Bills",
-        "cat_transfer": "Transfer",
+        # buckets (category and group names live in categories.py)
         "bucket_needs": "Needs",
         "bucket_wants": "Wants",
         "bucket_savings": "Savings",
-        "bucket_needs_long": "Needs (bills + transport)",
-        "bucket_wants_long": "Wants (food + shopping)",
-        "bucket_savings_long": "Savings (income - spend)",
-        "bucket_transfers_long": "Transfers (unclassified)",
+        "bucket_other": "Other money out",
+        "bucket_needs_long": "Needs (essentials)",
+        "bucket_wants_long": "Wants (lifestyle)",
+        "bucket_savings_long": "Savings (left over + moved to savings)",
+        "bucket_other_long": "Other money out (family, cash, other transfers)",
         # highlights
         "hl_biggest": "{cat} was your biggest spending category at {amount} ({pct} of living spend).",
-        "hl_kept": "You kept {net} of the {money_in} that came in (a {rate} savings rate).",
-        "hl_overspent": "You spent {amount} more than the {money_in} that came in this period.",
+        "hl_saved": "You saved {saved} ({rate}): {left_over} left over + {moved} moved to your savings.",
+        "hl_saved_left_over": "You saved {saved} ({rate}) of the {money_in} that came in, all of it left over.",
+        "hl_overspent": "Your spending was {amount} more than the {money_in} that came in this period.",
         "hl_small": "{count} purchases under {threshold} added up to {total} ({pct} of living spend).",
         "hl_fees_one": "You paid {total} in bank fees across {count} transaction.",
         "hl_fees_many": "You paid {total} in bank fees across {count} transactions.",
         "hl_merchant_one": "Your top merchant was {merchant}: {total} over {count} payment (about {avg} each).",
         "hl_merchant_many": "Your top merchant was {merchant}: {total} over {count} payments (about {avg} each).",
-        "hl_transfers": "{amount} went out as transfers. They mix savings and payments to people, so they are "
-                        "not counted as living spend.",
+        "hl_other_out": "{amount} went to family and friends, cash and other transfers. It is shown as other "
+                        "money out, not as living spend.",
+        "hl_saved_transfers": "You moved {amount} to your own savings or e-wallets. It counts as savings, "
+                              "not spending.",
         "hl_over_target": "{bucket} were {over} a month over the {pct} target ({target}).",
         "hl_savings_short": "Savings were {short} a month short of the {pct} target ({target}).",
         "hl_recipient_one": "Your largest transfer recipient was {name}: {total} over {count} payment "
@@ -64,7 +65,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "spend_by_category": "Spend by category",
         "transactions_by_category": "Transactions by category",
         "totals_by_category": "Totals by category",
+        "totals_by_group": "Totals by group",
+        "subtotal": "{group} subtotal",
         "col_category": "Category",
+        "col_group": "Group",
         "col_count": "Count",
         "col_total": "Total",
         "col_share": "Share",
@@ -84,6 +88,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_impact": "Impact",
         "src_rule": "rule",
         "src_model": "model",
+        "src_memory": "memory",
         "highlights": "Highlights",
         "no_highlights": "Not enough amounts in this statement for highlights.",
         "budget_view": "50/30/20 view",
@@ -99,8 +104,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "total_out": "Total out",
         "living_spend": "Living spend",
         "transfers_out": "Transfers out",
-        "net": "Net",
+        "left_over": "Left over",
+        "moved_to_savings": "Moved to your savings",
+        "saved": "Saved",
         "savings_rate": "Savings rate",
+        "saved_breakdown": "Saved per month: {saved} = {left_over} left over + {moved} moved to your savings.",
         "small_spends": "Small spends",
         "small_under_count": "Under {threshold}: count",
         "small_total": "Small spends total",
@@ -115,7 +123,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "income_entered": "entered",
         "income_none": "Income (per month): not available. Enter a monthly income to see Rupiah targets.",
         "budget_caption_income": "Target, Actual and Difference are per month. Share = share of income. "
-                                 "Savings = income - all money out (transfers count as money out, not savings).",
+                                 "Saved = left over (income - all money out) + money moved to your own savings or "
+                                 "e-wallets. Other money out (family, cash, other transfers) is shown on its own.",
         "budget_caption_total_out": "Actual is per month. Share = share of total out (no income found).",
         "diff_left": "{amount} left",
         "diff_over": "{amount} over",
@@ -139,22 +148,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "err_report": "Could not build the report.",
     },
     "id": {
-        "cat_food": "Makanan",
-        "cat_transport": "Transportasi",
-        "cat_shopping": "Belanja",
-        "cat_bills": "Tagihan",
-        "cat_transfer": "Transfer",
         "bucket_needs": "Kebutuhan",
         "bucket_wants": "Keinginan",
         "bucket_savings": "Tabungan",
-        "bucket_needs_long": "Kebutuhan (tagihan + transportasi)",
-        "bucket_wants_long": "Keinginan (makanan + belanja)",
-        "bucket_savings_long": "Tabungan (pendapatan - pengeluaran)",
-        "bucket_transfers_long": "Transfer (tidak diklasifikasi)",
+        "bucket_other": "Uang keluar lainnya",
+        "bucket_needs_long": "Kebutuhan (pokok)",
+        "bucket_wants_long": "Keinginan (gaya hidup)",
+        "bucket_savings_long": "Tabungan (sisa + dipindahkan ke tabungan)",
+        "bucket_other_long": "Uang keluar lainnya (keluarga, tunai, transfer lain)",
         "hl_biggest": "{cat} adalah kategori pengeluaran terbesar Anda, sebesar {amount} "
                       "({pct} dari biaya hidup).",
-        "hl_kept": "Anda menyisihkan {net} dari {money_in} uang masuk (tingkat tabungan {rate}).",
-        "hl_overspent": "Anda membelanjakan {amount} lebih banyak dari {money_in} uang masuk pada periode ini.",
+        "hl_saved": "Anda menabung {saved} ({rate}): sisa {left_over} + {moved} dipindahkan ke tabungan Anda.",
+        "hl_saved_left_over": "Anda menabung {saved} ({rate}) dari {money_in} uang masuk, semuanya berupa sisa.",
+        "hl_overspent": "Pengeluaran Anda {amount} lebih besar dari {money_in} uang masuk pada periode ini.",
         "hl_small": "{count} pembelian di bawah {threshold} berjumlah {total} ({pct} dari biaya hidup).",
         "hl_fees_one": "Anda membayar biaya bank {total} dari {count} transaksi.",
         "hl_fees_many": "Anda membayar biaya bank {total} dari {count} transaksi.",
@@ -162,8 +168,10 @@ STRINGS: dict[str, dict[str, str]] = {
                            "(sekitar {avg} per pembayaran).",
         "hl_merchant_many": "Merchant teratas Anda adalah {merchant}: {total} dari {count} pembayaran "
                             "(sekitar {avg} per pembayaran).",
-        "hl_transfers": "{amount} keluar sebagai transfer. Transfer mencampur tabungan dan pembayaran ke orang "
-                        "lain, jadi tidak dihitung sebagai biaya hidup.",
+        "hl_other_out": "{amount} keluar ke keluarga dan teman, tarik tunai dan transfer lain. Ini ditampilkan "
+                        "sebagai uang keluar lainnya, bukan biaya hidup.",
+        "hl_saved_transfers": "Anda memindahkan {amount} ke tabungan atau dompet digital sendiri. Ini dihitung "
+                              "sebagai tabungan, bukan pengeluaran.",
         "hl_over_target": "{bucket} {over} per bulan di atas target {pct} ({target}).",
         "hl_savings_short": "Tabungan {short} per bulan di bawah target {pct} ({target}).",
         "hl_recipient_one": "Penerima transfer terbesar Anda adalah {name}: {total} dari {count} pembayaran "
@@ -192,7 +200,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "spend_by_category": "Pengeluaran per kategori",
         "transactions_by_category": "Transaksi per kategori",
         "totals_by_category": "Total per kategori",
+        "totals_by_group": "Total per kelompok",
+        "subtotal": "Subtotal {group}",
         "col_category": "Kategori",
+        "col_group": "Kelompok",
         "col_count": "Jumlah",
         "col_total": "Total",
         "col_share": "Porsi",
@@ -212,6 +223,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "col_impact": "Dampak",
         "src_rule": "aturan",
         "src_model": "model",
+        "src_memory": "memori",
         "highlights": "Sorotan",
         "no_highlights": "Nominal di laporan ini belum cukup untuk sorotan.",
         "budget_view": "Tampilan 50/30/20",
@@ -227,8 +239,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "total_out": "Total keluar",
         "living_spend": "Biaya hidup",
         "transfers_out": "Transfer keluar",
-        "net": "Bersih",
+        "left_over": "Sisa",
+        "moved_to_savings": "Dipindahkan ke tabungan Anda",
+        "saved": "Ditabung",
         "savings_rate": "Tingkat tabungan",
+        "saved_breakdown": "Ditabung per bulan: {saved} = sisa {left_over} + {moved} dipindahkan ke tabungan Anda.",
         "small_spends": "Pengeluaran kecil",
         "small_under_count": "Di bawah {threshold}: jumlah",
         "small_total": "Total pengeluaran kecil",
@@ -243,8 +258,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "income_entered": "diisi manual",
         "income_none": "Pendapatan (per bulan): tidak tersedia. Isi pendapatan bulanan untuk melihat target Rupiah.",
         "budget_caption_income": "Target, Aktual dan Selisih adalah per bulan. Porsi = porsi dari pendapatan. "
-                                 "Tabungan = pendapatan - semua uang keluar (transfer dihitung sebagai uang keluar, "
-                                 "bukan tabungan).",
+                                 "Ditabung = sisa (pendapatan - semua uang keluar) + uang yang dipindahkan ke "
+                                 "tabungan atau dompet digital sendiri. Uang keluar lainnya (keluarga, tunai, "
+                                 "transfer lain) ditampilkan terpisah.",
         "budget_caption_total_out": "Aktual adalah per bulan. Porsi = porsi dari total keluar "
                                     "(pendapatan tidak ditemukan).",
         "diff_left": "sisa {amount}",
@@ -282,6 +298,10 @@ def t(lang: str, key: str, **values) -> str:
 
 
 def category_name(lang: str, category: str) -> str:
-    """Display name for a category key; unknown keys are capitalized as they are."""
-    key = f"cat_{category}"
-    return t(lang, key) if key in STRINGS[DEFAULT_LANG] else category.capitalize()
+    """Display name for a category key (from categories.py); unknown keys are capitalized as they are."""
+    return categories.name(category, normalize_lang(lang)) or category.capitalize()
+
+
+def group_name(lang: str, group: str) -> str:
+    """Display name for a group key (needs, wants, transfers)."""
+    return categories.group_name(group, normalize_lang(lang)) or group.capitalize()

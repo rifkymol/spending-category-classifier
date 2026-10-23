@@ -7,11 +7,13 @@
  * placeholders; plurals are two keys, "<key>_one" and "<key>_other". scripts/check-i18n.mjs
  * fails if the two files have different keys or placeholders.
  *
- * Category keys stay English everywhere (API, exports); only their display names change.
+ * Category keys stay English everywhere (API, exports); only their display names change. Category and
+ * group names come from the categories source (lib/categories.ts), not from the message files.
  * Rupiah amounts are always written id-ID style ("Rp 1.234.567"), in both languages.
  */
 
 import { createContext, createElement, Fragment, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { categoryInfo, groupInfo } from "./categories";
 import en from "./messages/en.json";
 import id from "./messages/id.json";
 import { getLocale, getServerLocale, setLocale, subscribePrefs, type Locale } from "./prefs";
@@ -89,9 +91,18 @@ export function formatDate(value: string | null, locale: Locale, withYear = fals
   return withYear ? `${day} ${part("year")}` : day;
 }
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** A category's display name; unknown keys (e.g. an old one) are capitalized as they are. */
 export function categoryName(category: string, locale: Locale): string {
-  const key = `cat.${category}` as MessageKey;
-  return key in DICTIONARIES.en ? translate(locale, key) : category.charAt(0).toUpperCase() + category.slice(1);
+  const info = categoryInfo(category);
+  return info ? (locale === "id" ? info.name_id : info.name_en) : capitalize(category);
+}
+
+/** A group's display name (Needs / Wants / Transfers). */
+export function groupName(group: string, locale: Locale): string {
+  const info = groupInfo(group);
+  return info ? (locale === "id" ? info.name_id : info.name_en) : capitalize(group);
 }
 
 function bind(locale: Locale) {
@@ -106,6 +117,7 @@ function bind(locale: Locale) {
     percent: (share: number, digits?: number) => formatPercent(share, locale, digits),
     date: (value: string | null, withYear?: boolean) => formatDate(value, locale, withYear),
     category: (category: string) => categoryName(category, locale),
+    group: (group: string) => groupName(group, locale),
   };
 }
 

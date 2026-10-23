@@ -2,9 +2,12 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-Category = Literal["food", "transport", "shopping", "bills", "transfer"]
+from classifier.categories import keys, migrate_key
+
+# Generated from classifier/categories.py, the one list of category keys.
+Category = Literal[tuple(keys())]
 MAX_REPORT_ROWS = 50_000
 MAX_INCOME = 1e12
 
@@ -18,7 +21,7 @@ class Row(BaseModel):
     predicted: str
     confidence: float
     needs_review: bool
-    source: Literal["rule", "model"]
+    source: Literal["rule", "model", "memory"]  # memory: a personal model's "same recipient" memory
 
 
 class CategoryTotal(BaseModel):
@@ -44,8 +47,12 @@ class CashFlow(BaseModel):
     out_count: int
     living_spend: float  # money out that is not a transfer
     transfers_out: float
-    net: float
-    savings_rate: float | None  # net / money_in; None when nothing came in (e.g. CSV uploads)
+    # Saved = left over + moved to your savings (savings_transfer out). left_over = money in - total out.
+    # left_over, saved and savings_rate are None when nothing came in (e.g. CSV uploads).
+    left_over: float | None
+    moved_to_savings: float
+    saved: float | None
+    savings_rate: float | None  # saved / money_in
 
 
 class Merchant(BaseModel):
@@ -70,10 +77,20 @@ class TransferParty(BaseModel):
     share: float | None  # of transfers out (out_*) or of money in (in_by_total); None when that is 0
 
 
+class CategoryTransfers(BaseModel):
+    """One transfer-group category's counterparties; share is of that category's out or in total."""
+
+    out_by_total: list[TransferParty]
+    in_by_total: list[TransferParty]
+
+
 class TopTransfers(BaseModel):
+    """Over the whole Transfers group (savings_transfer included), plus per transfer category."""
+
     out_by_total: list[TransferParty]
     out_by_count: list[TransferParty]
     in_by_total: list[TransferParty]
+    by_category: dict[str, CategoryTransfers]
 
 
 class SmallSpends(BaseModel):
@@ -92,7 +109,8 @@ class BudgetShares(BaseModel):
     needs: float | None
     wants: float | None
     savings: float | None
-    unclassified_transfers: float | None
+    savings_transfers: float | None
+    other_out: float | None
 
 
 class BucketAmounts(BaseModel):
@@ -104,17 +122,19 @@ class BucketAmounts(BaseModel):
 class ActualAmounts(BaseModel):
     needs: float
     wants: float
-    savings: float | None  # income - all money out, per month; None without an income
+    savings: float | None  # saved per month: left over + moved to your savings; None without an income
 
 
 class Budget503020(BaseModel):
-    """Amounts and shares are for the statement period; the *_amounts, income_monthly,
-    transfers_monthly and difference fields are per month (see classifier/insights.py)."""
+    """Amounts and shares are for the statement period; the *_amounts, income_monthly, *_monthly
+    and difference fields are per month (see classifier/insights.py)."""
 
     needs: float
     wants: float
-    savings: float | None
-    unclassified_transfers: float
+    savings: float | None  # saved = left_over + savings_transfers; None without an income
+    left_over: float | None  # income - all money out; None without an income
+    savings_transfers: float  # money moved to the user's own savings or e-wallets (counts as savings)
+    other_out: float  # family and friends, cash and other transfers: "Other money out"
     basis: Literal["money_in", "income_override", "total_out"]
     basis_amount: float
     shares: BudgetShares
@@ -124,7 +144,9 @@ class Budget503020(BaseModel):
     income_source: Literal["money_in", "override"] | None
     target_amounts: BucketAmounts | None
     actual_amounts: ActualAmounts
-    transfers_monthly: float
+    left_over_monthly: float | None
+    savings_transfers_monthly: float
+    other_out_monthly: float
     # target - actual. Needs/wants: positive = left under target. Savings: positive = short of target.
     difference: BucketAmounts | None
 
@@ -161,15 +183,41 @@ class ClassifyResponse(BaseModel):
 
 
 class ReportRow(Row):
-    """A row sent back for a report: same shape as Row, but the category must be one of the five."""
+    """A row sent back for a report or insights: same shape as Row, but the category must be a known
+    key. Old keys (before Phase 11, e.g. food) are mapped to their new keys first."""
 
     predicted: Category
+
+    @field_validator("predicted", mode="before")
+    @classmethod
+    def _migrate(cls, value):
+        return migrate_key(value) if isinstance(value, str) else value
 
 
 class ReportRequest(BaseModel):
     rows: list[ReportRow] = Field(max_length=MAX_REPORT_ROWS)
     # Monthly income typed in by the user, for the 50/30/20 targets. Never stored.
     income_override: float | None = Field(None, ge=0, le=MAX_INCOME, allow_inf_nan=False)
+
+
+class CategoryInfo(BaseModel):
+    key: str
+    group: str
+    bucket: Literal["needs", "wants", "savings", "other"]
+    color: str
+    name: str
+
+
+class GroupInfo(BaseModel):
+    key: str
+    color: str
+    name: str
+
+
+class Categories(BaseModel):
+    groups: list[GroupInfo]
+    categories: list[CategoryInfo]
+    other_color: str
 
 
 class Health(BaseModel):

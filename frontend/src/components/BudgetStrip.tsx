@@ -1,7 +1,8 @@
 "use client";
 
 import { useId } from "react";
-import { BUCKETS } from "./Insights";
+import { BUCKETS, OTHER_OUT_COLOR } from "./Insights";
+import { formatIDR } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import type { Bucket, Insights } from "@/lib/types";
 
@@ -13,7 +14,9 @@ interface Props {
 
 /**
  * The 50/30/20 view at a glance: three mini bars (needs, wants, savings). With an income they show
- * actual vs target in Rupiah per month; without one, shares of money out vs the guideline.
+ * actual vs target in Rupiah per month; without one, shares of money out vs the guideline. Under
+ * them, "Other money out" (family and friends, cash, other transfers) with its amount: it is in no
+ * bucket, so it is never hidden inside one.
  */
 export default function BudgetStrip({ budget, onDetails }: Props) {
   const { t, percent, compactIDR } = useLocale();
@@ -86,10 +89,35 @@ export default function BudgetStrip({ budget, onDetails }: Props) {
                 <span className="absolute -top-1 h-3.5 w-0.5 -translate-x-1/2 rounded-full bg-ink" style={{ left: `${mark}%` }} />
               </div>
               {state && <p className={`mt-1.5 text-xs font-medium ${state.good ? "text-accent" : "text-warn"}`}>{state.text}</p>}
+              {withIncome && b.key === "savings" && budget.left_over_monthly !== null && (
+                <p className="mt-0.5 text-xs tabular-nums text-muted">
+                  {t("insights.savedBreakdown", {
+                    left: compactIDR(budget.left_over_monthly),
+                    moved: compactIDR(budget.savings_transfers_monthly),
+                  })}
+                </p>
+              )}
             </li>
           );
         })}
       </ul>
+
+      {budget.other_out > 0 && (
+        <p className="mt-5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-t border-line pt-3 text-sm">
+          <span className="flex items-center gap-1.5 font-medium">
+            <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ background: OTHER_OUT_COLOR }} />
+            {t("strip.otherOut")}
+          </span>
+          <span className="tabular-nums text-ink-2">
+            {withIncome
+              ? t("strip.perMonthValue", { amount: formatIDR(budget.other_out_monthly) })
+              : `${formatIDR(budget.other_out)}${
+                  budget.shares.other_out !== null ? ` · ${t("strip.shareOfOut", { pct: percent(budget.shares.other_out, 0) })}` : ""
+                }`}
+          </span>
+          <span className="text-xs text-muted">{t("strip.otherOutHint")}</span>
+        </p>
+      )}
     </section>
   );
 }

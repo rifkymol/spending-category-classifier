@@ -19,7 +19,16 @@ import pandas as pd
 from sklearn.metrics import classification_report
 from sklearn.model_selection import StratifiedKFold
 
-from classifier import CONFIDENCE_THRESHOLD, build_model, classify, clean_description, load_transactions
+from classifier import (
+    CONFIDENCE_THRESHOLD,
+    MEMORY_ATTR,
+    build_model,
+    build_recipient_memory,
+    classify,
+    clean_description,
+    load_transactions,
+)
+from classifier.categories import CHANGED_MEANING, migrate_key
 from classifier.importers import parse_bca_pdf, statement_frame
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -28,9 +37,13 @@ DEFAULT_OUT = BACKEND_DIR.parent / "data" / "predictions.csv"
 SAMPLE_CSV = BACKEND_DIR.parent / "data" / "sample_transactions.csv"
 
 # Rows exported from the web app carry a label_source. Only rows a person confirmed or
-# corrected ("user") or a keyword rule matched ("rule") are labels; "model" rows are
-# unreviewed guesses and would teach the model its own mistakes.
-TRUSTED_LABEL_SOURCES = {"user", "rule"}
+# corrected ("user"), a keyword rule matched ("rule") or the recipient memory filled in from
+# earlier labels ("memory") are labels; "model" rows are unreviewed guesses and would teach the
+# model its own mistakes.
+TRUSTED_LABEL_SOURCES = {"user", "rule", "memory"}
+# Old labels (before Phase 11) whose category changed meaning (food, transfer) are mapped to a new
+# key but marked with this label_source and left out until they are reviewed in the app.
+MIGRATED = "migrated"
 
 
 def expand_paths(patterns) -> list[Path]:
@@ -47,21 +60,39 @@ def expand_paths(patterns) -> list[Path]:
     return paths
 
 
-def load_labeled_file(path) -> tuple[pd.DataFrame, int]:
-    """One labeled CSV, minus rows without a category or with an untrusted label_source.
+def migrate_labels(df: pd.DataFrame) -> pd.DataFrame:
+    """Old category keys as new ones (food -> eating_out, transfer -> other_transfer, ...). Rows
+    whose old key changed meaning get label_source "migrated"."""
+    df = df.copy()
+    changed = df["category"].isin(CHANGED_MEANING)
+    df["category"] = df["category"].map(migrate_key)
+    if changed.any():
+        if "label_source" not in df.columns:
+            df["label_source"] = pd.Series([None] * len(df), index=df.index, dtype=object)
+        df["label_source"] = df["label_source"].astype(object)
+        df.loc[changed, "label_source"] = MIGRATED
+    return df
 
-    Returns the rows and how many were dropped for their label_source.
+
+def load_labeled_file(path) -> tuple[pd.DataFrame, int, int]:
+    """One labeled CSV, with old keys migrated, minus rows without a category, migrated rows and
+    rows with an untrusted label_source.
+
+    Returns the rows, how many were dropped for their label_source and how many were migrated.
     """
     df = load_transactions(path)
     if "category" not in df.columns:
         raise ValueError(f"Labeled CSV must have a 'category' column: {path}")
-    df = df[df["category"].notna()]
-    dropped = 0
+    has_sources = "label_source" in df.columns  # files without the column (e.g. the sample) are all labels
+    df = migrate_labels(df[df["category"].notna()])
+    dropped = migrated = 0
     if "label_source" in df.columns:
-        trusted = df["label_source"].isin(TRUSTED_LABEL_SOURCES)
-        dropped = int((~trusted).sum())
-        df = df[trusted]
-    return df, dropped
+        is_migrated = df["label_source"] == MIGRATED
+        migrated = int(is_migrated.sum())
+        trusted = df["label_source"].isin(TRUSTED_LABEL_SOURCES) | (not has_sources)
+        dropped = int((~trusted & ~is_migrated).sum())
+        df = df[trusted & ~is_migrated]
+    return df, dropped, migrated
 
 
 def load_labeled(paths, with_synthetic: bool = False) -> pd.DataFrame:
@@ -69,14 +100,17 @@ def load_labeled(paths, with_synthetic: bool = False) -> pd.DataFrame:
     paths = expand_paths([str(p) for p in paths])
     if with_synthetic and SAMPLE_CSV.resolve() not in {p.resolve() for p in paths}:
         paths.append(SAMPLE_CSV)
-    frames, dropped = [], 0
+    frames, dropped, migrated = [], 0, 0
     for path in paths:
-        df, n = load_labeled_file(path)
+        df, n, m = load_labeled_file(path)
         frames.append(df)
         dropped += n
+        migrated += m
     df = pd.concat(frames, ignore_index=True)
     if dropped:
-        print(f"Dropped {dropped} unreviewed rows (label_source not user or rule)")
+        print(f"Dropped {dropped} unreviewed rows (label_source not user, rule or memory)")
+    if migrated:
+        print(f"Excluded {migrated} migrated rows (old food/transfer labels; review them in the app first)")
     if df.empty:
         raise ValueError("No labeled rows to use.")
     return df
@@ -84,7 +118,7 @@ def load_labeled(paths, with_synthetic: bool = False) -> pd.DataFrame:
 
 def print_category_counts(df: pd.DataFrame) -> None:
     for category, count in df["category"].value_counts().sort_index().items():
-        print(f"  {category:<12}{count:>6}")
+        print(f"  {category:<18}{count:>6}")
 
 
 def evaluate(args) -> None:
@@ -132,11 +166,15 @@ def train(args) -> None:
     if df["category"].nunique() < 2:
         raise ValueError("Training needs at least 2 categories.")
     model = build_model().fit(df["description"].map(clean_description), df["category"])
+    # "Same recipient, same category": saved inside the model file, so it stays as local as the model.
+    memory = build_recipient_memory(df)
+    setattr(model, MEMORY_ATTR, memory)
     model_path = Path(args.model)
     model_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, model_path)
     print(f"Trained on {len(df)} rows ({df['category'].nunique()} categories)")
     print_category_counts(df)
+    print(f"Recipient memory: {len(memory)} recipients")
     print(f"Saved model to {model_path}")
 
 
@@ -154,6 +192,7 @@ def predict(args) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"Rule matches: {df['rule_category'].notna().sum()} of {len(df)}")
+    print(f"Recipient memory matches: {(df['source'] == 'memory').sum()}")
     print(f"Flagged for review: {df['needs_review'].sum()}")
     print(f"Saved predictions to {out_path}")
 

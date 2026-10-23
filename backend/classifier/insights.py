@@ -9,20 +9,31 @@ Conventions (the same as summarize() in the API):
 - Rows with direction "CR" are money in. Every other row (DB, or no direction as in
   CSV uploads) is money out.
 - Amounts use abs(). Rows without an amount are counted but add 0 to totals.
-- "Living spend" is money out that is not a transfer. Transfers mix savings, rent and
-  payments to people, so they are shown on their own and never in top merchants.
-- Top transfers (top_transfers) group transfer rows by counterparty (transfer_key): "out"
-  for money-out transfers (share = share of transfers out) and "in" for money-in rows
-  categorized as transfer (share = share of money in). Rent, debt, family and donations
-  stay trackable this way.
+- Categories, groups and 50/30/20 buckets come from categories.py.
+- "Living spend" is money out outside the Transfers group (savings_transfer, people_transfer,
+  cash, other_transfer). Transfers are shown on their own and never in top merchants.
+- Top transfers (top_transfers) group Transfers-group rows by counterparty (transfer_key):
+  "out" for money-out transfers (share = share of transfers out) and "in" for money-in rows in
+  the Transfers group (share = share of money in), plus the same per transfer category
+  (by_category, shares of that category). Rent, debt, family and donations stay trackable.
 
-50/30/20 in Rupiah (budget_503020), all per month:
+Saved, one definition everywhere (cash_flow, budget_503020, highlights, reports, UI):
+  saved = left over + moved to your savings, where left over = money in - total out and moved to
+  your savings = savings_transfer out. Equivalently money in - (total out - savings_transfer).
+  savings_rate = saved / money in. Without money in, left_over, saved and savings_rate are None.
+
+50/30/20 v2 in Rupiah (budget_503020), all per month:
+- needs = the Needs group, wants = the Wants group.
+- savings_transfers = savings_transfer (money moved to the user's own savings or e-wallets).
+  It counts as saving, not spending.
+- other_out = people_transfer + cash + other_transfer: "Other money out", shown on its own
+  with its amount. It is spending for the savings figure, but in neither needs nor wants.
 - income_monthly: the user's income_override when it is given and > 0, else money in
   scaled to one month (money_in x months_factor), else None (e.g. a CSV upload).
 - target_amounts: TARGETS x income_monthly (needs 50%, wants 30%, savings 20%).
-- actual_amounts: needs and wants are their spend per month. Savings is
-  income_monthly - all money out per month. Transfers count as money out there, not as
-  savings: they stay "unclassified" and are shown on their own.
+- actual_amounts: needs and wants are their spend per month. Savings is saved per month:
+  left_over_monthly (income_monthly - all money out per month) + savings_transfers_monthly. With
+  income from money in it equals cash_flow.saved per month.
 - difference = target - actual per bucket. For needs and wants a positive difference is
   money left under the target and a negative one is the amount over it. For savings a
   positive difference is how far short of the target savings fell; zero or negative
@@ -36,14 +47,16 @@ import re
 import pandas as pd
 
 from .bca import BCA_NOISE
+from .categories import TRANSFERS, by_bucket, by_group, is_transfer, keys
 from .i18n import category_name, t
 from .pipeline import clean_description
+from .transfers import TRANSFER_BOILERPLATE, TRANSFER_CASH, TRANSFER_OTHER, is_named, transfer_key  # noqa: F401
 
 SMALL_SPEND_THRESHOLD = 50_000
-NEEDS = {"bills", "transport"}
-WANTS = {"food", "shopping"}
-TRANSFER = "transfer"
-CATEGORIES = ["food", "transport", "shopping", "bills", "transfer"]
+NEEDS = by_bucket("needs")
+WANTS = by_bucket("wants")
+SAVINGS = by_bucket("savings")
+OTHER_OUT = by_bucket("other")
 TARGETS = {"needs": 0.5, "wants": 0.3, "savings": 0.2}
 DAYS_PER_MONTH = 30.4375
 TOP_N = 5
@@ -66,30 +79,12 @@ MERCHANT_BOILERPLATE = [
 ] + BCA_NOISE
 MERCHANT_WORDS = 3
 
-# Words in BCA transfer descriptions that say how money moved, not to or from whom. Matched as
-# whole words on lowercased text after reference codes, dates and punctuation are removed.
-TRANSFER_BOILERPLATE = [
-    "trsf", "trf", "transfer", "e banking", "ebanking", "m banking", "mbanking", "m transfer", "internet banking",
-    "db", "cr", "bi fast", "bifast", "switching", "llg", "kliring", "skn", "rtgs", "kr otomatis", "kredit otomatis",
-    "db otomatis", "debit otomatis", "antar bank", "antarbank", "dari", "ke", "qris", "ref", "ftscy", "ws",
-    "tgl", "tanggal", "berita", "rek", "no", "bank", "bca", "bri", "bni", "btn", "mandiri", "cimb", "permata",
-]
-TRANSFER_WORDS = 4
-# Kept upper-case in names ("PT Contoh Jaya", not "Pt Contoh Jaya").
-_UPPER_WORDS = {"pt", "cv", "ud", "tbk"}
-_CASH_PATTERN = re.compile(r"\b(tarik tunai|atm)\b")
-# Keys for transfers without a named counterparty; transfer_name() translates them for display.
-TRANSFER_CASH = "<cash>"
-TRANSFER_OTHER = "<other>"
-
-
 def _phrase(phrase: str) -> re.Pattern:
     return re.compile(rf"\b{re.escape(phrase)}\b")
 
 
 _FEE_PATTERNS = [_phrase(clean_description(p)) for p in FEE_PHRASES]
 _BOILERPLATE = [_phrase(p) for p in MERCHANT_BOILERPLATE]
-_TRANSFER_BOILERPLATE = [_phrase(p) for p in sorted(TRANSFER_BOILERPLATE, key=len, reverse=True)]
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -109,6 +104,12 @@ def _pct(share: float) -> str:
     return f"{share * 100:.0f}%"
 
 
+def _pct1(share: float, lang: str) -> str:
+    """Up to one decimal: 0.245 -> "24.5%" ("24,5%" in Indonesian), 0.2 -> "20%"."""
+    text = f"{share * 100:.1f}".rstrip("0").rstrip(".")
+    return (text.replace(".", ",") if lang == "id" else text) + "%"
+
+
 def _r(value: float) -> float:
     return round(float(value), 2)
 
@@ -121,25 +122,6 @@ def merchant_key(description: str) -> str:
         text = pattern.sub(" ", text)
     words = [w for w in text.split() if len(w) > 1]
     return " ".join(words[:MERCHANT_WORDS]).title()
-
-
-def transfer_key(description: str) -> str:
-    """The counterparty of a transfer, for grouping: reference codes, dates, digits and
-    transfer boilerplate removed, up to four words title-cased ("TRSF E-BANKING DB
-    0309/FTSCY/WS95051 BUDI CONTOH" -> "Budi Contoh"). Cash withdrawals give TRANSFER_CASH and
-    descriptions with no name left give TRANSFER_OTHER."""
-    text = (description or "").lower()
-    if _CASH_PATTERN.search(re.sub(r"[^a-z\s]", " ", text)):
-        return TRANSFER_CASH
-    text = re.sub(r"\S*[\d/]\S*", " ", text)  # reference codes, dates and numbers ("0309/ftscy/ws95051")
-    text = re.sub(r"[^a-z\s]", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    for pattern in _TRANSFER_BOILERPLATE:
-        text = pattern.sub(" ", text)
-    words = [w for w in text.split() if len(w) > 1][:TRANSFER_WORDS]
-    if not words:
-        return TRANSFER_OTHER
-    return " ".join(w.upper() if w in _UPPER_WORDS else w.capitalize() for w in words)
 
 
 def transfer_name(key: str, lang: str = "en") -> str:
@@ -183,7 +165,7 @@ def statement_period(dates: list) -> dict:
 def _top_merchants(spend: list[dict]) -> dict:
     groups: dict[str, dict] = {}
     for r in spend:
-        if r["category"] == TRANSFER:
+        if is_transfer(r["category"]):
             continue
         key = merchant_key(r["description"])
         if not key:
@@ -221,14 +203,28 @@ def _group_transfers(rows: list[dict], base: float) -> tuple[list[dict], list[di
 def _top_transfers(spend: list[dict], money_in_rows: list[dict], transfers_out: float, money_in: float,
                    lang: str) -> tuple[dict, dict | None]:
     """top_transfers, plus the largest named recipient out (for the highlight; None if none)."""
-    out_by_total, out_by_count = _group_transfers([r for r in spend if r["category"] == TRANSFER], transfers_out)
-    in_by_total, _ = _group_transfers([r for r in money_in_rows if r["category"] == TRANSFER], money_in)
+    out_rows = [r for r in spend if is_transfer(r["category"])]
+    in_rows = [r for r in money_in_rows if is_transfer(r["category"])]
+    out_by_total, out_by_count = _group_transfers(out_rows, transfers_out)
+    in_by_total, _ = _group_transfers(in_rows, money_in)
 
     def named(items: list[dict]) -> list[dict]:
         return [{"name": transfer_name(m["key"], lang), **{k: v for k, v in m.items() if k != "key"}} for m in items]
 
-    recipient = next((m for m in out_by_total if m["key"] not in (TRANSFER_CASH, TRANSFER_OTHER)), None)
-    top = {"out_by_total": named(out_by_total), "out_by_count": named(out_by_count), "in_by_total": named(in_by_total)}
+    # Per transfer category, for its details panel: shares of that category's out (or in) total.
+    by_category = {}
+    for category in by_group(TRANSFERS):
+        cat_out = [r for r in out_rows if r["category"] == category]
+        cat_in = [r for r in in_rows if r["category"] == category]
+        if not cat_out and not cat_in:
+            continue
+        cat_out_total, _ = _group_transfers(cat_out, sum(r["amount"] for r in cat_out))
+        cat_in_total, _ = _group_transfers(cat_in, sum(r["amount"] for r in cat_in))
+        by_category[category] = {"out_by_total": named(cat_out_total), "in_by_total": named(cat_in_total)}
+
+    recipient = next((m for m in out_by_total if is_named(m["key"])), None)
+    top = {"out_by_total": named(out_by_total), "out_by_count": named(out_by_count), "in_by_total": named(in_by_total),
+           "by_category": by_category}
     return top, (named([recipient])[0] if recipient else None)
 
 
@@ -237,7 +233,7 @@ def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict
     out = []
     living = cash["living_spend"]
 
-    living_cats = {c: v for c, v in cat_totals.items() if c != TRANSFER and v > 0}
+    living_cats = {c: v for c, v in cat_totals.items() if not is_transfer(c) and v > 0}
     if living_cats:
         cat, total = max(living_cats.items(), key=lambda kv: kv[1])
         out.append({
@@ -246,14 +242,17 @@ def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict
             "impact_rp": _r(total),
         })
 
-    if cash["money_in"] > 0:
-        net = cash["net"]
-        if net >= 0:
-            text = t(lang, "hl_kept", net=format_rp(net), money_in=format_rp(cash["money_in"]),
-                     rate=_pct(cash["savings_rate"]))
+    if cash["saved"] is not None:
+        saved = cash["saved"]
+        if saved < 0:
+            text = t(lang, "hl_overspent", amount=format_rp(-saved), money_in=format_rp(cash["money_in"]))
+        elif cash["moved_to_savings"] > 0:
+            text = t(lang, "hl_saved", saved=format_rp(saved), rate=_pct1(cash["savings_rate"], lang),
+                     left_over=format_rp(cash["left_over"]), moved=format_rp(cash["moved_to_savings"]))
         else:
-            text = t(lang, "hl_overspent", amount=format_rp(-net), money_in=format_rp(cash["money_in"]))
-        out.append({"text": text, "impact_rp": _r(abs(net))})
+            text = t(lang, "hl_saved_left_over", saved=format_rp(saved), rate=_pct1(cash["savings_rate"], lang),
+                     money_in=format_rp(cash["money_in"]))
+        out.append({"text": text, "impact_rp": _r(abs(saved))})
 
     if small["total"] > 0 and small["share_of_living"] is not None and small["share_of_living"] > SMALL_SPEND_HIGHLIGHT_SHARE:
         out.append({
@@ -276,9 +275,14 @@ def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict
             "impact_rp": m["total"],
         })
 
-    if cash["transfers_out"] > 0:
-        out.append({"text": t(lang, "hl_transfers", amount=format_rp(cash["transfers_out"])),
-                    "impact_rp": cash["transfers_out"]})
+    # With money in, the "saved" highlight already shows the moves to savings in its breakdown.
+    if budget["savings_transfers"] > 0 and cash["saved"] is None:
+        out.append({"text": t(lang, "hl_saved_transfers", amount=format_rp(budget["savings_transfers"])),
+                    "impact_rp": budget["savings_transfers"]})
+
+    if budget["other_out"] > 0:
+        out.append({"text": t(lang, "hl_other_out", amount=format_rp(budget["other_out"])),
+                    "impact_rp": budget["other_out"]})
 
     # The largest named transfer recipient, when it is a big part of transfers or of all money out.
     if recipient is not None and (
@@ -316,11 +320,14 @@ def _highlights(cash: dict, cat_totals: dict, small: dict, fees: dict, top: dict
 
 
 def _budget(cat_totals: dict, money_in: float, total_out: float, factor: float, income_override) -> dict:
-    """The 50/30/20 view: statement-period amounts and shares, plus per-month Rupiah targets,
+    """The 50/30/20 v2 view: statement-period amounts and shares, plus per-month Rupiah targets,
     actuals and differences when there is an income (see the module docstring)."""
-    transfers_out = cat_totals.get(TRANSFER, 0.0)
-    needs = sum(cat_totals.get(c, 0.0) for c in NEEDS)
-    wants = sum(cat_totals.get(c, 0.0) for c in WANTS)
+
+    def total(bucket_keys: list[str]) -> float:
+        return sum(cat_totals.get(c, 0.0) for c in bucket_keys)
+
+    needs, wants = total(NEEDS), total(WANTS)
+    savings_transfers, other_out = total(SAVINGS), total(OTHER_OUT)
 
     if income_override is not None and income_override > 0:
         income_monthly, income_source = float(income_override), "override"
@@ -332,7 +339,9 @@ def _budget(cat_totals: dict, money_in: float, total_out: float, factor: float, 
     else:
         income_monthly = income_source = None
         basis, basis_amount = "total_out", total_out
-    savings = basis_amount - total_out if income_monthly is not None else None
+    # Saved = left over + moved to your savings (see the module docstring).
+    left_over = basis_amount - total_out if income_monthly is not None else None
+    savings = left_over + savings_transfers if left_over is not None else None
 
     def share(value):
         return round(value / basis_amount, 4) if value is not None and basis_amount > 0 else None
@@ -340,7 +349,7 @@ def _budget(cat_totals: dict, money_in: float, total_out: float, factor: float, 
     actual = {
         "needs": _r(needs * factor),
         "wants": _r(wants * factor),
-        "savings": None if income_monthly is None else _r(income_monthly - total_out * factor),
+        "savings": None if income_monthly is None else _r((income_monthly - total_out * factor) + savings_transfers * factor),
     }
     if income_monthly is None:
         targets = difference = None
@@ -352,22 +361,27 @@ def _budget(cat_totals: dict, money_in: float, total_out: float, factor: float, 
         "needs": _r(needs),
         "wants": _r(wants),
         "savings": None if savings is None else _r(savings),
-        "unclassified_transfers": _r(transfers_out),
+        "left_over": None if left_over is None else _r(left_over),
+        "savings_transfers": _r(savings_transfers),
+        "other_out": _r(other_out),
         "basis": basis,
         "basis_amount": _r(basis_amount),
         "shares": {
             "needs": share(needs),
             "wants": share(wants),
             "savings": share(savings),
-            "unclassified_transfers": share(transfers_out),
+            "savings_transfers": share(savings_transfers),
+            "other_out": share(other_out),
         },
         "targets": dict(TARGETS),
-        "mapping": {"needs": sorted(NEEDS), "wants": sorted(WANTS), "unclassified": [TRANSFER]},
+        "mapping": {"needs": list(NEEDS), "wants": list(WANTS), "savings": list(SAVINGS), "other": list(OTHER_OUT)},
         "income_monthly": None if income_monthly is None else _r(income_monthly),
         "income_source": income_source,
         "target_amounts": targets,
         "actual_amounts": actual,
-        "transfers_monthly": _r(transfers_out * factor),
+        "left_over_monthly": None if income_monthly is None else _r(income_monthly - total_out * factor),
+        "savings_transfers_monthly": _r(savings_transfers * factor),
+        "other_out_monthly": _r(other_out * factor),
         "difference": difference,
     }
 
@@ -401,13 +415,16 @@ def compute_insights(rows, income_override: float | None = None, lang: str = "en
             "category": str(_field(row, "predicted")),
         })
 
-    cat_totals = {c: 0.0 for c in CATEGORIES}
+    cat_totals = {c: 0.0 for c in keys()}
     for r in spend:
         cat_totals[r["category"]] = cat_totals.get(r["category"], 0.0) + r["amount"]
     total_out = sum(r["amount"] for r in spend)
-    transfers_out = cat_totals.get(TRANSFER, 0.0)
+    transfers_out = sum(v for c, v in cat_totals.items() if is_transfer(c))
     living = total_out - transfers_out
-    net = money_in - total_out
+    # Saved = left over + moved to your savings; only defined when money came in.
+    moved = sum(cat_totals.get(c, 0.0) for c in SAVINGS)
+    left_over = money_in - total_out if money_in > 0 else None
+    saved = left_over + moved if left_over is not None else None
 
     cash = {
         "money_in": _r(money_in),
@@ -416,14 +433,16 @@ def compute_insights(rows, income_override: float | None = None, lang: str = "en
         "out_count": len(spend),
         "living_spend": _r(living),
         "transfers_out": _r(transfers_out),
-        "net": _r(net),
-        "savings_rate": round(net / money_in, 4) if money_in > 0 else None,
+        "left_over": None if left_over is None else _r(left_over),
+        "moved_to_savings": _r(moved),
+        "saved": None if saved is None else _r(saved),
+        "savings_rate": round(saved / money_in, 4) if saved is not None else None,
     }
 
     top = _top_merchants(spend)
     transfers, recipient = _top_transfers(spend, money_in_rows, transfers_out, money_in, lang)
 
-    small_rows = [r for r in spend if r["category"] != TRANSFER and 0 < r["amount"] < SMALL_SPEND_THRESHOLD]
+    small_rows = [r for r in spend if not is_transfer(r["category"]) and 0 < r["amount"] < SMALL_SPEND_THRESHOLD]
     small_total = sum(r["amount"] for r in small_rows)
     small = {
         "threshold": SMALL_SPEND_THRESHOLD,

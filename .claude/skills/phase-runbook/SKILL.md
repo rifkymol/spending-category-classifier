@@ -349,6 +349,98 @@ Goal: show only the main things first and reveal details on demand. The behaviou
   - *PM browser check (synthetic CSV): rent Kos Contoh Indah Rp 2.500.000 (53.2%, Biggest), Budi Contoh Rp 1.500.000 2×, ATM Rp 500.000, donation Rp 200.000. The highlight "Your largest transfer recipient was Kos Contoh Indah…" is shown. ID + 375 px: "Penerima teratas (keluar)", "Terbesar", no horizontal scroll.*
   - *Cosmetic follow-ups: (a) at 375 px the #1 name is shortened next to the "Terbesar" pill; (b) README line 83 says transfers are left out of top merchants, which could point to Top transfers; (c) there's no README screenshot of the panel yet.*
 
+## Phase 11: better categories + transfer types (FOCUS; approved 2026-10-23, building)
+
+**Why:**
+- "Food" mixes needs (groceries) and wants (eating out), so the 50/30/20 split is wrong.
+- Transfers (≈ half of the user's spending) sit outside the budget entirely, so savings and rent aren't recognised.
+- The September personal model has never had an honest out-of-month test.
+
+**Done means:**
+- The new categories are live everywhere (classifier, API, UI, reports, insights, both languages).
+- September is relabelled.
+- The personal model is retrained.
+- The October out-of-month check is run and the threshold decided.
+
+### 11.1 Proposed taxonomy (decision C1)
+| Group | Key | EN | ID | 50/30/20 |
+|---|---|---|---|---|
+| Needs | `groceries` | Groceries | Kebutuhan harian | Needs |
+| Needs | `bills` | Bills and utilities | Tagihan | Needs |
+| Needs | `transport` | Transport | Transportasi | Needs |
+| Needs | `health` | Health | Kesehatan | Needs |
+| Needs | `housing` | Rent and housing | Sewa dan hunian | Needs |
+| Wants | `eating_out` | Eating out | Makan di luar | Wants |
+| Wants | `shopping` | Shopping | Belanja | Wants |
+| Wants | `entertainment` | Entertainment and subscriptions | Hiburan dan langganan | Wants |
+| Transfers | `savings_transfer` | To my savings or e-wallet | Ke tabungan atau dompet digital sendiri | **Savings** (not spending) |
+| Transfers | `people_transfer` | Family and friends | Keluarga dan teman | Shown separately ("other") |
+| Transfers | `cash` | Cash withdrawal | Tarik tunai | Shown separately ("other") |
+| Transfers | `other_transfer` | Other transfer | Transfer lainnya | Shown separately ("other") |
+
+Twelve categories, three groups. Education folds into bills (or becomes its own category if the user wants it).
+
+### 11.2 Design
+- **One source of truth:** a backend `classifier/categories.py` holding the key, group, budget bucket, color and EN/ID names. The API exposes `GET /api/categories`, so the frontend reads the same list. This removes the 5 hard-coded copies (`main.py`, `schemas.py`, `insights.py`, `types.ts`, tests). Colors: a harmonious 12-color set that works in light and dark, with groups sharing a hue family.
+- **50/30/20 v2:**
+  - needs = the Needs group;
+  - wants = the Wants group;
+  - **savings = net + `savings_transfer`** (money moved to your own savings counts as saving, not spending);
+  - people/cash/other transfers are listed as "Other money out", with the amount shown.
+- **Rules:**
+  - public groceries chains (Indomaret, Alfamart, Superindo, Hypermart, …) → groceries;
+  - restaurants/cafés → eating_out;
+  - pharmacies/hospitals/BPJS → health;
+  - streaming/games/cinema → entertainment;
+  - e-wallet top-ups (DANA, OVO, GoPay, ShopeePay, "TOP UP") → savings_transfer;
+  - TARIK TUNAI/ATM → cash.
+  - The transfer group stays last.
+- **"My own accounts" (decision C2):** transfers to the user's own other accounts become `savings_transfer`.
+  - Option a: learned only from labels, plus a "same recipient → same category" memory from the labels file.
+  - Option b: also a local, gitignored `data/labels/own_accounts.txt` the user writes, never committed or logged.
+- **Migrating old labels:**
+  - The CLI `train`/`evaluate` map old keys: food → eating_out, bills → bills, transport → transport, shopping → shopping, transfer → other_transfer. Mapped rows from old categories that changed meaning (food, transfer) are marked `label_source=migrated` and are NOT used for training until reviewed.
+  - When re-uploading, the app flags these rows for review, so September needs only the food and transfer rows re-checked (about 47 + 45 rows).
+- **Synthetic data:** extend `data/sample_transactions.csv` and the BCA test fixture to cover all 12 categories (synthetic only). The shipped synthetic model is retrained on it.
+- **UI:**
+  - The CategoryPicker is grouped (Needs / Wants / Transfers headers) with type-ahead.
+  - The category list and donut show the group totals first (Needs / Wants / Transfers), each expandable to its categories, so 12 categories don't feel crowded.
+  - The 50/30/20 strip uses the v2 mapping.
+  - The details panel works per category.
+- **Reports, insights and highlights:** they follow the new keys and names (EN/ID); the PDF and Excel get group subtotals.
+- **Tests:** taxonomy integrity (every key has a group, bucket, color, EN and ID names), migration mapping, the v2 budget math (savings_transfer counted as savings), rules for each new category, i18n/storage parity, and the existing privacy tests.
+
+### 11.3 Checklist (owners)
+- [x] [You] Decide C1 (taxonomy as above, or edits) and C2 (own accounts: labels only, or a local list). *(2026-10-23: C1 = the 12 categories as proposed; C2 = learn from labels only, with "same recipient → same category" memory from the labels file. No local list.)*
+- [x] [You] Approve the start of the build. *(2026-10-23)*
+- [x] [builder] 11a: `categories.py` source of truth + `/api/categories`; replace all hard-coded lists; colors; tests.
+- [x] [builder] 11b: rules + synthetic data + shipped synthetic model; migration in the CLI; budget v2 in insights/reports/highlights; tests.
+- [x] [builder] 11c: frontend grouped picker, group-first chart/list, strip v2, details panel, EN/ID; checks.
+- [x] [auditor] Full verification: tests, taxonomy integrity, budget math by hand, no hard-coded category lists left (grep), privacy, i18n, storage. *(2026-10-23: 12/12 pass, 291 tests. Budget v2 by hand is exact (savings 2.45M with savings_transfer counted). Migration excluded 5/12 old food/transfer rows. Recipient memory ANI SAMPEL → savings_transfer (source memory). No names in logs.)*
+- [ ] [PM] Browser walkthrough with synthetic data; masked real-statement check (counts per group only); refresh screenshots; ask before commit. *(Walkthrough done 2026-10-23: groups first (Needs 16.2M / Wants 2.1M / Transfers 7.5M), Needs expands to 5 categories and the donut splits; picker has 12 options in 3 ARIA groups; the strip shows "Other money out". Masked real check with the OLD personal model: 98 rows, 46 flagged (migrated food/transfer), 14 DB transfers → savings_transfer by rule, the 15 CR stay other_transfer; income + targets OK; PDF/XLSX 200.)*
+  - *Found, to fix before commit:*
+    1. *The housing color (indigo) is too close to the Transfers violet; they sit next to each other on the donut.*
+    2. *There are two different "savings" figures. Cash-flow net / savings rate (e.g. 950k, 9.5%, used in the "You kept…" highlight) excludes savings_transfer, while the 50/30/20 savings (2.45M) includes it. Unify: "Saved = left over + moved to your savings", with the breakdown shown.*
+  - *Both fixes are done (user-approved, 2026-10-23). 298 tests.*
+    - *Housing color: slate-teal, with a color-distance test.*
+    - *One savings definition, "Saved = left over + moved to your savings". By hand: 10M in, 9.05M out, 1.5M savings_transfer → 950k + 1.5M = 2.45M (24.5%), identical in cash_flow, budget and the highlight. Browser (synthetic BCA): header "Saved 85.2%"; Insights "Rp 7.243.000 = Rp 7.043.000 left over + Rp 200.000 moved to your savings"; the strip shows the same breakdown.*
+  - *Screenshots refreshed (synthetic model): results.png (group-first view), review.png (now the category details panel; README caption updated by PM), report-pdf.png (12 categories with group subtotals). upload.png is unchanged.*
+  - *The API was restored to `MODEL_PATH=models/personal.joblib` (the old 5-category model; its predictions migrate and get flagged for review).*
+- [ ] [You] Re-review September in the app (only the flagged food/transfer rows) → Export labels → `data/labels/`.
+- [ ] [PM→worker] Retrain the personal model; masked metrics.
+- [ ] [You] October statement: upload, review the flagged rows, export labels.
+- [ ] [PM→worker] **Out-of-month check:** train on September, test on October. Report the accuracy, the review share, and how many flagged rows the user had to change; decide the threshold (0.5 vs 0.6); retrain on both months.
+
+## Roadmap (PINNED, not started; only after Phase 11 is done)
+In priority order. Each item still needs its own plan and the user's approval.
+1. **In-app "bring your own labels" retraining:** stateless per-request training from a labels file (details in "Later"). Removes the CLI + MODEL_PATH restart.
+2. **Privacy/security hardening:** a Content-Security-Policy (self + 127.0.0.1:8000 only), X-Frame-Options, Referrer-Policy, Permissions-Policy; Dependabot for pip/npm/Docker digests.
+3. **Static demo on GitHub Pages:** the frontend with canned synthetic responses, no backend, zero data.
+4. **Frontend tests:** unit tests (summary, merchants, budget, csv) + Playwright e2e (needs a dev-dependency install approval); rebuild the local Docker images; fix the pre-hydration label flash; remove the httpx deprecation warning.
+5. **Portfolio finishing:** a panel screenshot, a short GIF, release tags v0.8–v0.11.
+6. **Housekeeping:** the Phase 10 cosmetic leftovers (phone #1 name truncation, README line 83), refresh state-snapshot, archive finished worker sessions.
+7. **Month-over-month (8b)** and recurring payments; optional email; embeddings comparison; more banks.
+
 ## Portfolio polish
 
 - [x] [builder] Wrote the README landing page, PRIVACY.md, MIT LICENSE, CHANGELOG (v0.1–v0.7), CONTRIBUTING and `.github/workflows/ci.yml` (backend pytest; frontend lint → build → tsc; docker build; `contents: read`). *(2026-10-19)*

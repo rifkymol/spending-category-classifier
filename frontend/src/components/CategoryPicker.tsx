@@ -5,9 +5,19 @@ import { createPortal } from "react-dom";
 import { CheckIcon, ChevronDownIcon } from "./icons";
 import { colorFor } from "@/lib/format";
 
+export interface PickerGroup {
+  key: string;
+  /** The group header, e.g. "Needs". */
+  label: string;
+  /** A dot shown next to the header. */
+  color?: string;
+  options: readonly string[];
+}
+
 interface Props {
   value: string;
-  options: readonly string[];
+  /** The options under group headers. Arrow keys and type-ahead run across all groups. */
+  groups: readonly PickerGroup[];
   onChange: (value: string) => void;
   /** Accessible name, e.g. "Category for GRAB*FOOD". */
   label: string;
@@ -16,25 +26,34 @@ interface Props {
 }
 
 const MENU_GAP = 4;
-const MENU_WIDTH = 176;
-const ROW_HEIGHT = 34;
+const MENU_WIDTH = 264;
+const MENU_MARGIN = 8;
+const ROW_HEIGHT = 32;
+const HEADER_HEIGHT = 28;
+const TYPEAHEAD_MS = 700;
 
-type Position = { left: number; top?: number; bottom?: number };
+type Position = { left: number; top?: number; bottom?: number; maxHeight: number };
 
 /**
- * A pill button that opens a listbox popover (ARIA "button + listbox" pattern).
- * The popover is portalled to <body> with fixed positioning, so a scrolling table never clips it;
- * it flips upward when there is no room below the trigger.
+ * A pill button that opens a grouped listbox popover (ARIA "button + listbox" pattern, with
+ * role="group" sections labelled by their headers). The popover is portalled to <body> with fixed
+ * positioning, so a scrolling table never clips it; it flips upward when there is more room above
+ * and scrolls when the viewport is short. Typing jumps to the first option whose name, or a word in
+ * it, starts with the typed text; typing the same letter again cycles through the matches.
  */
-export default function CategoryPicker({ value, options, onChange, label, optionLabel = (v) => v }: Props) {
+export default function CategoryPicker({ value, groups, onChange, label, optionLabel = (v) => v }: Props) {
   const id = useId();
   const labelId = `${id}-label`;
   const buttonId = `${id}-button`;
   const listId = `${id}-list`;
-  const all = options.includes(value) ? options : [value, ...options];
+  const optionId = (i: number) => `${id}-opt-${i}`;
+  const all = groups.flatMap((g) => g.options);
+  // Index of each group's first option in `all`.
+  const offsets = groups.map((_, g) => groups.slice(0, g).reduce((n, prev) => n + prev.options.length, 0));
 
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const typed = useRef({ text: "", at: 0 });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [pos, setPos] = useState<Position | null>(null);
@@ -42,18 +61,20 @@ export default function CategoryPicker({ value, options, onChange, label, option
   const place = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const menuHeight = all.length * ROW_HEIGHT + 8;
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - MENU_WIDTH - 8));
-    const below = window.innerHeight - rect.bottom;
-    if (below < menuHeight + MENU_GAP && rect.top > below) {
-      setPos({ left, bottom: window.innerHeight - rect.top + MENU_GAP });
+    const wanted = all.length * ROW_HEIGHT + groups.length * HEADER_HEIGHT + 8;
+    const left = Math.max(MENU_MARGIN, Math.min(rect.left, window.innerWidth - MENU_WIDTH - MENU_MARGIN));
+    const below = window.innerHeight - rect.bottom - MENU_GAP - MENU_MARGIN;
+    const above = rect.top - MENU_GAP - MENU_MARGIN;
+    if (below < wanted && above > below) {
+      setPos({ left, bottom: window.innerHeight - rect.top + MENU_GAP, maxHeight: Math.min(wanted, above) });
     } else {
-      setPos({ left, top: rect.bottom + MENU_GAP });
+      setPos({ left, top: rect.bottom + MENU_GAP, maxHeight: Math.min(wanted, below) });
     }
-  }, [all.length]);
+  }, [all.length, groups.length]);
 
   const openMenu = (index = Math.max(0, all.indexOf(value))) => {
     setActive(index);
+    typed.current = { text: "", at: 0 };
     place();
     setOpen(true);
   };
@@ -81,6 +102,11 @@ export default function CategoryPicker({ value, options, onChange, label, option
     };
   }, [open, place]);
 
+  // Keep the active option visible when the menu scrolls.
+  useEffect(() => {
+    if (open) document.getElementById(`${id}-opt-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, active, id]);
+
   // Close on a click outside the trigger and the menu.
   useEffect(() => {
     if (!open) return;
@@ -99,7 +125,30 @@ export default function CategoryPicker({ value, options, onChange, label, option
     }
   }
 
-  function onListKey(e: KeyboardEvent<HTMLUListElement>) {
+  /** Type-ahead: the typed text matches the start of an option's name or of any word in it. */
+  function typeAhead(char: string) {
+    const now = Date.now();
+    const prev = typed.current;
+    const text = now - prev.at < TYPEAHEAD_MS ? prev.text + char : char;
+    typed.current = { text, at: now };
+    // One repeated letter cycles through matches; longer text refines from the current option.
+    const cycling = [...text].every((c) => c === text[0]);
+    const needle = cycling ? text[0] : text;
+    const matches = (i: number) => {
+      const name = optionLabel(all[i]).toLowerCase();
+      return name.startsWith(needle) || name.includes(` ${needle}`);
+    };
+    const start = cycling ? 1 : 0;
+    for (let step = start; step < all.length + start; step++) {
+      const i = (active + step) % all.length;
+      if (matches(i)) {
+        setActive(i);
+        return;
+      }
+    }
+  }
+
+  function onListKey(e: KeyboardEvent<HTMLDivElement>) {
     const last = all.length - 1;
     switch (e.key) {
       case "ArrowDown":
@@ -119,9 +168,14 @@ export default function CategoryPicker({ value, options, onChange, label, option
         setActive(last);
         break;
       case "Enter":
-      case " ":
         e.preventDefault();
         choose(active);
+        break;
+      case " ":
+        e.preventDefault();
+        // A space inside typed text ("eating out") continues the search; on its own it chooses.
+        if (Date.now() - typed.current.at < TYPEAHEAD_MS && typed.current.text) typeAhead(" ");
+        else choose(active);
         break;
       case "Escape":
       case "Tab":
@@ -129,16 +183,8 @@ export default function CategoryPicker({ value, options, onChange, label, option
         close(true);
         break;
       default:
-        // Type-ahead by first letter; repeated presses cycle through matches.
-        if (e.key.length === 1 && /\S/.test(e.key)) {
-          const key = e.key.toLowerCase();
-          for (let step = 1; step <= all.length; step++) {
-            const i = (active + step) % all.length;
-            if (optionLabel(all[i]).toLowerCase().startsWith(key)) {
-              setActive(i);
-              break;
-            }
-          }
+        if (e.key.length === 1 && /\S/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          typeAhead(e.key.toLowerCase());
         }
     }
   }
@@ -158,51 +204,71 @@ export default function CategoryPicker({ value, options, onChange, label, option
         aria-labelledby={`${labelId} ${buttonId}`}
         onClick={() => (open ? close(false) : openMenu())}
         onKeyDown={onButtonKey}
-        className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-line bg-surface py-1 pl-2.5 pr-1.5 text-sm capitalize text-ink transition-colors duration-150 hover:border-line-strong"
+        className="focus-ring inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-surface py-1 pl-2.5 pr-1.5 text-sm text-ink transition-colors duration-150 hover:border-line-strong"
       >
         <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(value) }} />
-        {optionLabel(value)}
-        <ChevronDownIcon className={`h-3.5 w-3.5 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+        <span className="truncate">{optionLabel(value)}</span>
+        <ChevronDownIcon className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
       </button>
       {open &&
         pos &&
         createPortal(
-          <ul
+          <div
             ref={listRef}
             id={listId}
             role="listbox"
             tabIndex={-1}
             aria-labelledby={labelId}
-            aria-activedescendant={`${id}-opt-${active}`}
+            aria-activedescendant={optionId(active)}
             onKeyDown={onListKey}
             onBlur={(e) => {
               const next = e.relatedTarget as Node | null;
               if (next !== buttonRef.current && !listRef.current?.contains(next)) setOpen(false);
             }}
-            style={{ left: pos.left, top: pos.top, bottom: pos.bottom, width: MENU_WIDTH }}
-            className={`fixed z-50 rounded-lg border border-line bg-surface p-1 text-sm text-ink shadow-pop outline-none animate-pop-in ${
+            style={{ left: pos.left, top: pos.top, bottom: pos.bottom, width: MENU_WIDTH, maxHeight: pos.maxHeight }}
+            className={`fixed z-50 overflow-y-auto overscroll-contain rounded-lg border border-line bg-surface p-1 text-sm text-ink shadow-pop outline-none animate-pop-in ${
               pos.bottom !== undefined ? "origin-bottom" : "origin-top"
             }`}
           >
-            {all.map((option, i) => (
-              <li
-                key={option}
-                id={`${id}-opt-${i}`}
-                role="option"
-                aria-selected={option === value}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => choose(i)}
-                style={{ height: ROW_HEIGHT }}
-                className={`flex cursor-pointer select-none items-center gap-2 rounded-md px-2 capitalize ${
-                  i === active ? "bg-subtle" : ""
-                }`}
-              >
-                <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(option) }} />
-                <span className="flex-1">{optionLabel(option)}</span>
-                {option === value && <CheckIcon className="h-4 w-4 text-accent" />}
-              </li>
-            ))}
-          </ul>,
+            {groups.map((group, g) => {
+              const headerId = `${id}-group-${group.key}`;
+              return (
+                <div key={group.key} role="group" aria-labelledby={headerId}>
+                  <div
+                    id={headerId}
+                    style={{ height: HEADER_HEIGHT }}
+                    className="flex select-none items-end gap-1.5 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted"
+                  >
+                    {group.color && (
+                      <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: group.color }} />
+                    )}
+                    {group.label}
+                  </div>
+                  {group.options.map((option, j) => {
+                    const i = offsets[g] + j;
+                    return (
+                      <div
+                        key={option}
+                        id={optionId(i)}
+                        role="option"
+                        aria-selected={option === value}
+                        onMouseEnter={() => setActive(i)}
+                        onClick={() => choose(i)}
+                        style={{ minHeight: ROW_HEIGHT }}
+                        className={`flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 leading-snug ${
+                          i === active ? "bg-subtle" : ""
+                        }`}
+                      >
+                        <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(option) }} />
+                        <span className="flex-1">{optionLabel(option)}</span>
+                        {option === value && <CheckIcon className="h-4 w-4 shrink-0 text-accent" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>,
           document.body,
         )}
     </>

@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Privacy: local-only](https://img.shields.io/badge/privacy-local--only-success)](PRIVACY.md)
 
-Drop in a BCA e-statement PDF (or any CSV with a `description` column) and get every transaction sorted into **food, transport, shopping, bills or transfer**, a donut chart of where the money went, and a CSV, Excel or PDF report. Rows the model is unsure about are flagged for you to check, and your corrections can train a personal model. Nothing is uploaded anywhere: no database, no cloud, no analytics.
+Drop in a BCA e-statement PDF (or any CSV with a `description` column) and get every transaction sorted into **12 categories in three groups (Needs, Wants, Transfers)**, a donut chart of where the money went, and a CSV, Excel or PDF report. Rows the model is unsure about are flagged for you to check, and your corrections can train a personal model. Nothing is uploaded anywhere: no database, no cloud, no analytics.
 
 ![Results page: summary cards, donut chart and the categorized transaction table](docs/screenshots/results.png)
 
@@ -30,21 +30,21 @@ Then open http://127.0.0.1:3000.
 - **BCA e-statement PDF import**, parsed in memory with `pdfplumber` (multi-line descriptions, page breaks, DB/CR markers), plus generic CSV upload.
 - **Two-stage classifier:** keyword rules for well-known merchants, then a TF-IDF + logistic regression model for the rest.
 - **Review flags** on low-confidence rows (threshold 0.6), with a "Next to review" filter and one-click "Looks right".
-- **Editable categories**, a donut chart and per-category totals; money coming in is shown but not counted as spending.
-- **Category details:** click a category (or its slice) to open a side panel (a bottom sheet on phones) that leads with "Where the money went" (its biggest merchants, or for transfers its top recipients and sources) and lists every transaction in it, so you can fix categories right there.
+- **12 categories, grouped:** Needs (groceries, bills, transport, health, housing), Wants (eating out, shopping, entertainment) and Transfers (own savings, family and friends, cash, other). The chart and list show the three groups first, each expandable to its categories; money coming in is shown but not counted as spending.
+- **Category details:** click a category (or its slice) to open a side panel (a bottom sheet on phones) that leads with "Where the money went" (its biggest merchants, or for a transfer category its top recipients and sources) and lists every transaction in it, so you can fix categories right there.
 - **Top transfers:** transfers are grouped by recipient (rent, debt, family, donations), ranked by total or count, with a highlight for your largest recipient and a table in the PDF and Excel reports.
 - **Main things first:** the results page leads with the total, the chart, a compact 50/30/20 strip and a "need review" prompt; the full insights and the transactions table open on demand.
 - **Spending insights:** cash flow and savings rate, top merchants, small-spend and fee callouts, a 50/30/20 view and what-if sliders, updated as you correct categories.
-- **50/30/20 in Rupiah:** monthly targets for needs, wants and savings from your income (detected from money in, or typed in and never stored), with "Rp X left" / "Rp X over" per bucket.
+- **50/30/20 in Rupiah:** monthly targets for needs, wants and savings from your income (detected from money in, or typed in and never stored), with "Rp X left" / "Rp X over" per bucket. Money moved to your own savings or e-wallets counts as savings; family, cash and other transfers are shown as "Other money out".
 - **Reports** as CSV, Excel (summary sheet with a chart, plus an Insights sheet) or A4 PDF (with a Highlights section), all built in memory.
 - **Teach it your spending:** export your reviewed rows as labels and train a personal model from the CLI.
 - **English and Bahasa Indonesia:** an EN | ID switch for the whole UI, the highlights, error messages and the Excel/PDF reports. It starts in your browser's language.
 - **Light, dark or system theme** (System | Light | Dark switch, no flash on load), with a bundled font (no external fonts or CDNs).
 - **Self-hosted and locked down:** localhost-only ports, read-only non-root containers, no outbound calls.
 
-| Upload | Review | PDF report |
+| Upload | Category details | PDF report |
 |---|---|---|
-| ![Upload page](docs/screenshots/upload.png) | ![Review filter with flagged rows](docs/screenshots/review.png) | ![PDF report](docs/screenshots/report-pdf.png) |
+| ![Upload page](docs/screenshots/upload.png) | ![Category details panel with "Where the money went" and the transaction list](docs/screenshots/review.png) | ![PDF report](docs/screenshots/report-pdf.png) |
 
 ## How it works
 
@@ -70,28 +70,48 @@ flowchart LR
 
 1. The browser sends the file as the raw request body. The API detects a PDF by its content type (`application/pdf`) or its `%PDF-` magic bytes and parses it with the BCA importer; anything else is read as CSV.
 2. Descriptions are lowercased, stripped of reference numbers, dates and noise, and BCA abbreviations are expanded ([`backend/classifier/bca.py`](backend/classifier/bca.py)).
-3. Keyword rules (word-boundary regexes for public chain merchants) decide the obvious rows. Transfer rules run last.
+3. Keyword rules (word-boundary regexes for public chain merchants) decide the obvious rows. Transfer rules (cash, own savings, other transfers) run last. A personal model can also carry a "same recipient, same category" memory from your labels (see below).
 4. The rest go to a TF-IDF model (`char_wb`, n-grams 2–5) plus logistic regression. A prediction below 0.6 confidence is flagged for review.
 5. The UI shows the results; edits stay in the page. The report endpoint takes the corrected rows and streams back a file.
 6. Optionally, "Export labels" saves your reviewed rows as a CSV, which the CLI turns into a personal model loaded through `MODEL_PATH`.
+
+### Categories
+
+| Group | Key | English | Indonesian | 50/30/20 |
+|---|---|---|---|---|
+| Needs | `groceries` | Groceries | Kebutuhan harian | Needs |
+| Needs | `bills` | Bills and utilities | Tagihan | Needs |
+| Needs | `transport` | Transport | Transportasi | Needs |
+| Needs | `health` | Health | Kesehatan | Needs |
+| Needs | `housing` | Rent and housing | Sewa dan hunian | Needs |
+| Wants | `eating_out` | Eating out | Makan di luar | Wants |
+| Wants | `shopping` | Shopping | Belanja | Wants |
+| Wants | `entertainment` | Entertainment and subscriptions | Hiburan dan langganan | Wants |
+| Transfers | `savings_transfer` | To my savings or e-wallet | Ke tabungan atau dompet digital sendiri | Savings (not spending) |
+| Transfers | `people_transfer` | Family and friends | Keluarga dan teman | Other money out |
+| Transfers | `cash` | Cash withdrawal | Tarik tunai | Other money out |
+| Transfers | `other_transfer` | Other transfer | Transfer lainnya | Other money out |
+
+They live in `backend/classifier/categories.py`; to change one, edit it there and run `.venv\Scripts\python backend/scripts/export_categories.py` to refresh the frontend copy. `people_transfer` has no keyword rule: it comes from your labels and the recipient memory.
 
 ### Insights
 
 The Insights panel under the chart turns one statement into budgeting figures. Everything is computed in memory from the current rows by `backend/classifier/insights.py` (rule-based statistics, no AI), and recomputed through `POST /api/insights` whenever you correct a category.
 
-- **Cash flow:** money in (CR rows), total out, living spend (money out excluding transfers), transfers out, net, and the savings rate (net / money in; shown only when the statement has money-in rows, so not for CSV uploads).
+- **Cash flow:** money in (CR rows), total out, living spend (Needs + Wants), transfers out (the whole Transfers group), saved (left over + moved to your savings, shown with that breakdown), and the savings rate (net / money in; shown only when the statement has money-in rows, so not for CSV uploads).
 - **Top merchants:** the top 5 by total and by count, with the average payment. Names come from the cleaned description minus BCA boilerplate and reference numbers. Transfers are left out, since they are usually people.
 - **Small spends:** living-spend purchases under Rp 50,000, with their count, total and share of living spend.
 - **Fees:** rows matching bank fee phrases (`biaya adm`, `biaya transfer`, `biaya bi fast`, `admin fee`).
-- **50/30/20 view:** needs = bills + transport, wants = food + shopping. With an income it shows Rupiah targets per month (needs 50%, wants 30%, savings 20% of income), the actual amounts and the difference: "Rp 450.000 left" or "Rp 300.000 over" for needs and wants, "Rp X short of target" or "On track" for savings. The income is money in scaled to one month, or a monthly income you type into the card (CSV uploads have no money in); the typed value is sent with each insights and report request and never stored. Savings = income minus all money out, so transfers count as money out, not as savings; they are shown separately as unclassified, because they mix savings and payments. Without an income the card falls back to shares of total out.
-- **What-if sliders:** cut a category by 0–50% and see the saving per month and per year, and how far the food and shopping cuts move wants toward its target. Figures are scaled per month from the statement period; a statement shorter than a month counts as one month.
+- **50/30/20 view (v2):** needs = the Needs group, wants = the Wants group, and savings = **saved = left over + moved to your savings**: left over is money in minus all money out, and moved to your savings is the `savings_transfer` money (your own savings or e-wallets). The same definition is used for the cash-flow card, the header's "Saved" share, the highlight, the 50/30/20 card and the reports. Family and friends, cash and other transfers are "Other money out": spending, but in neither needs nor wants, so they are shown on their own with the amount. With an income it shows Rupiah targets per month (needs 50%, wants 30%, savings 20% of income), the actual amounts and the difference: "Rp 450.000 left" or "Rp 300.000 over" for needs and wants, "Rp X short of target" or "On track" for savings. The income is money in scaled to one month, or a monthly income you type into the card (CSV uploads have no money in); the typed value is sent with each insights and report request and never stored. Without an income the card falls back to shares of total out. A worked example: money in Rp 10.000.000 and money out Rp 9.050.000, of which Rp 1.500.000 went to your own savings: left over Rp 950.000 + moved Rp 1.500.000 = saved Rp 2.450.000 (24.5%).
+- **What-if sliders:** cut a category by 0–50% and see the saving per month and per year, and how far the cuts in the Wants group move wants toward its target. The Transfers group has no sliders. Figures are scaled per month from the statement period; a statement shorter than a month counts as one month.
 - **Highlights:** 3–5 plain-English sentences ranked by Rupiah impact, also in the PDF report and the Excel Insights sheet.
 
-The defaults (the Rp 50,000 threshold and the needs/wants mapping) are constants at the top of `insights.py`. These are budgeting insights, not financial advice: the app never suggests financial products or investments.
+The Rp 50,000 threshold is a constant at the top of `insights.py`; the needs/wants/savings/other mapping is each category's bucket in `backend/classifier/categories.py`. These are budgeting insights, not financial advice: the app never suggests financial products or investments.
 
 ### Design decisions
 
 - **Raw body instead of multipart.** Starlette spools multipart uploads over 1 MB to a temp file on disk. Sending the file as the raw request body keeps it in memory only, and a test proves it with a >1 MB upload against an isolated temp dir.
+- **One source of truth for categories.** `backend/classifier/categories.py` holds every key, group, 50/30/20 bucket, color and EN/ID name. The API's `Category` type, the reports and the insights read it directly; `backend/scripts/export_categories.py` writes `frontend/src/lib/categories.json` for the web app (a test fails if it is out of date), and `GET /api/categories` serves the same list. Colors share a hue family per group and have at least 3:1 contrast on the light and dark backgrounds (tested).
 - **Rules before the model, transfer rules last.** Public merchant names are cheap, precise signals, so rules handle them with 1.00 precision on the sample. Transfer rules run last because a QR or debit payment to a known merchant also looks like a transfer.
 - **Money in is not spending.** Credit (CR) rows are shown and kept in reports, but excluded from the spending totals and chart, so a salary doesn't look like a big "transfer" expense.
 - **`pdfplumber` instead of an LLM with vision.** Text extraction gives exact amounts, runs offline, costs nothing and never sends a statement to a third party. An LLM could misread a digit and would need the document to leave the machine.
@@ -127,7 +147,7 @@ Bank statements are sensitive, so privacy is a feature, not an afterthought. Ful
 
 ## Teach it your spending
 
-The bundled model only knows 40 synthetic rows, so merchants without a keyword rule often land in the wrong category. Train a personal model on your own reviewed transactions; it all happens on your machine.
+The bundled model only knows 81 synthetic rows (at least 6 per category), so merchants without a keyword rule often land in the wrong category. Train a personal model on your own reviewed transactions; it all happens on your machine.
 
 1. Upload a statement and review it. Change wrong categories, or press **✓** ("Looks right") on a flagged row that is already correct. Then click **Export labels**: your browser saves `labels-YYYY-MM-DD.csv` (`date,description,amount,direction,category,label_source`).
 2. Move the file into `data/labels/` (create it with `mkdir data/labels`).
@@ -145,6 +165,8 @@ Notes:
 
 - `train` and `evaluate` keep only `user` and `rule` rows and print how many `model` rows they dropped.
 - `train` accepts several files (add a new export each month) and also includes the synthetic sample unless you pass `--no-synthetic`. It prints counts per category, never descriptions.
+- **Recipient memory:** `train` also saves, inside the model file, which category each transfer recipient had in your labels (rows from you or a rule, transfer categories only), for example that "Ibu Contoh" is family and your own other account is savings. When that model classifies a transfer to a known recipient, the row gets that category with source `memory` (a merchant rule such as KFC still wins). It stays as local as the model; the shipped synthetic model has an empty memory. There is no list of your own accounts to keep: label the transfers once and the memory learns them.
+- **Old labels (before the 12 categories):** `train` and `evaluate` map old keys (food → eating_out, transfer → other_transfer; transport, shopping and bills unchanged). Old food and transfer rows are marked `migrated` and left out of training (the count is printed) until you review them in the app and export again. The API also accepts old keys in report and insights requests and maps them the same way.
 - `evaluate` leaves categories with fewer than 2 rows out of cross-validation with a warning (`--min-per-class` raises the bar).
 - Wildcards such as `data/labels/*.csv` work in PowerShell and cmd too; the CLI expands them itself.
 - `data/labels/`, `models/` and `*.joblib` are gitignored and excluded from the Docker build.
@@ -176,7 +198,8 @@ On startup the API trains a model in memory on the synthetic `data/sample_transa
 | Endpoint | What it does |
 |---|---|
 | `GET /api/health` | `{"status": "ok", "model": "synthetic" or "custom"}` |
-| `POST /api/classify?threshold=0.6&lang=en` | `lang` (`en` or `id`, default `en`; anything else is English) sets the language of the highlights, disclaimer and error messages here and on the two endpoints below. Body: a BCA e-statement PDF (`application/pdf`) or a CSV (`text/csv`, or `application/octet-stream`, which is treated as CSV unless it starts with `%PDF-`) with a `description` column (`date` and `amount` optional), max 5 MB. Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule` or `model`), plus per-category totals. |
+| `POST /api/classify?threshold=0.6&lang=en` | `lang` (`en` or `id`, default `en`; anything else is English) sets the language of the highlights, disclaimer and error messages here and on the two endpoints below. Body: a BCA e-statement PDF (`application/pdf`) or a CSV (`text/csv`, or `application/octet-stream`, which is treated as CSV unless it starts with `%PDF-`) with a `description` column (`date` and `amount` optional), max 5 MB. Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule`, `model` or `memory`), plus per-category totals. |
+| `GET /api/categories?lang=en` | The 12 categories (key, group, bucket, color, name) and the three groups, names in `lang`. |
 | `POST /api/insights?lang=en` | Body: `{"rows": [...], "income_override": 8000000}`, same as `/api/report` (same caps and validation). `income_override` is optional: a monthly income (a finite number from 0 to 10^12; 0 or missing means use money in) for the 50/30/20 Rupiah targets. Returns the insights for those rows: cash flow, top merchants, small spends, fees, the 50/30/20 view, per-month figures and highlights. `/api/classify` includes the same `insights` for the uploaded rows. |
 | `POST /api/report?format=csv&lang=en` | Body: `{"rows": [...], "income_override": 8000000}` (rows from `/api/classify`, with any corrected `predicted`; the income is optional, as above). `format` is `csv` (default), `xlsx` or `pdf`. Excel and PDF follow `lang`; CSV is a machine format and stays English. Capped at 10 MB and 50,000 rows. Validation errors return 422 with field locations only, never the submitted rows. |
 
@@ -200,7 +223,7 @@ python backend/classify.py predict data/sample_transactions.csv --out data/predi
 .venv\Scripts\python -m pytest backend/tests -q -p no:cacheprovider
 ```
 
-190 tests cover the pipeline, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, insights and 50/30/20 targets, both languages, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run check:i18n` (English and Indonesian have the same keys and placeholders), `npm run check:storage` (only `lang` and `theme` in browser storage), `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+Over 300 tests cover the categories source, the pipeline, label migration, the recipient memory, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, insights and 50/30/20 targets, both languages, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run check:i18n` (English and Indonesian have the same keys and placeholders), `npm run check:storage` (only `lang` and `theme` in browser storage), `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ### Project structure
 
@@ -208,7 +231,9 @@ python backend/classify.py predict data/sample_transactions.csv --out data/predi
 .
 ├── backend/
 │   ├── app/              FastAPI app: main.py (endpoints), reports.py, schemas.py
-│   ├── classifier/       pipeline.py (clean, rules, model), insights.py, bca.py, importers/bca_pdf.py
+│   ├── classifier/       categories.py (the categories), pipeline.py (clean, rules, memory, model),
+│   │                     insights.py, transfers.py, i18n.py, bca.py, importers/bca_pdf.py
+│   ├── scripts/          export_categories.py (writes frontend/src/lib/categories.json)
 │   ├── tests/            pytest suite and the synthetic BCA PDF fixture
 │   ├── classify.py       CLI: evaluate, train, predict
 │   ├── Dockerfile

@@ -34,14 +34,14 @@ def test_transfer_key(description, key):
 def transfers_statement():
     """Salary in, rent and family transfers out, an unnamed transfer, a cash withdrawal and food."""
     rows = [
-        tx("KR OTOMATIS LLG-ANTAR BANK DARI PT CONTOH GAJI", 10_000_000, "transfer", "CR", "2026-09-01"),
-        tx("TRSF E-BANKING CR 0509/FTSCY/WS1 IBU CONTOH", 500_000, "transfer", "CR", "2026-09-05"),
-        tx("TRSF E-BANKING DB 0209/FTSCY/WS95051 PAK KOS CONTOH", 2_500_000, "transfer", date="2026-09-02"),
-        tx("TRSF E-BANKING DB 0309/FTSCY/WS95052 IBU CONTOH", 1_000_000, "transfer", date="2026-09-03"),
-        tx("TRSF E-BANKING DB 2009/FTSCY/WS95053 IBU CONTOH", 1_000_000, "transfer", date="2026-09-20"),
-        tx("BI-FAST TRANSFER REF 91", 300_000, "transfer", date="2026-09-10"),
-        tx("TARIK TUNAI ATM 12/09", 200_000, "transfer", date="2026-09-12"),
-        tx("GRAB FOOD 1122", 100_000, "food", date="2026-09-13"),
+        tx("KR OTOMATIS LLG-ANTAR BANK DARI PT CONTOH GAJI", 10_000_000, "other_transfer", "CR", "2026-09-01"),
+        tx("TRSF E-BANKING CR 0509/FTSCY/WS1 IBU CONTOH", 500_000, "people_transfer", "CR", "2026-09-05"),
+        tx("TRSF E-BANKING DB 0209/FTSCY/WS95051 PAK KOS CONTOH", 2_500_000, "people_transfer", date="2026-09-02"),
+        tx("TRSF E-BANKING DB 0309/FTSCY/WS95052 IBU CONTOH", 1_000_000, "people_transfer", date="2026-09-03"),
+        tx("TRSF E-BANKING DB 2009/FTSCY/WS95053 IBU CONTOH", 1_000_000, "people_transfer", date="2026-09-20"),
+        tx("BI-FAST TRANSFER REF 91", 300_000, "other_transfer", date="2026-09-10"),
+        tx("TARIK TUNAI ATM 12/09", 200_000, "cash", date="2026-09-12"),
+        tx("GRAB FOOD 1122", 100_000, "eating_out", date="2026-09-13"),
     ]
     for i, r in enumerate(rows):
         r["id"] = i
@@ -71,12 +71,13 @@ def test_top_transfers_names_are_translated():
 
 
 def test_top_transfers_empty_without_transfers():
-    rows = [tx("GRAB FOOD 1122", 100_000, "food")]
-    assert compute_insights(rows)["top_transfers"] == {"out_by_total": [], "out_by_count": [], "in_by_total": []}
+    rows = [tx("GRAB FOOD 1122", 100_000, "eating_out")]
+    assert compute_insights(rows)["top_transfers"] == {"out_by_total": [], "out_by_count": [], "in_by_total": [],
+                                                          "by_category": {}}
 
 
 def test_top_transfers_without_amounts_have_no_share():
-    rows = [tx("TRSF KE BUDI CONTOH", None, "transfer")]
+    rows = [tx("TRSF KE BUDI CONTOH", None, "people_transfer")]
     top = compute_insights(rows)["top_transfers"]
     assert top["out_by_total"] == []  # nothing to rank by total
     assert top["out_by_count"] == [{"name": "Budi Contoh", "count": 1, "total": 0, "avg": 0, "share": None}]
@@ -93,8 +94,8 @@ def test_recipient_highlight_in_both_languages():
 def test_recipient_highlight_skips_unnamed_and_small_recipients():
     # The largest group is unnamed, so the highlight names the largest named recipient instead.
     rows = [
-        tx("BI-FAST TRANSFER REF 91", 5_000_000, "transfer"),
-        tx("TRSF KE BUDI CONTOH", 1_200_000, "transfer"),
+        tx("BI-FAST TRANSFER REF 91", 5_000_000, "other_transfer"),
+        tx("TRSF KE BUDI CONTOH", 1_200_000, "people_transfer"),
     ]
     texts = [h["text"] for h in compute_insights(rows)["highlights"]]
     assert any("recipient was Budi Contoh" in h for h in texts)
@@ -102,7 +103,7 @@ def test_recipient_highlight_skips_unnamed_and_small_recipients():
 
     # Under 20% of transfers out and under 10% of all money out: no recipient highlight.
     names = ["SATU", "DUA", "TIGA", "EMPAT", "LIMA", "ENAM", "TUJUH", "DELAPAN", "SEMBILAN", "SEPULUH"]
-    rows = [tx(f"TRSF KE ORANG {name}", 100_000, "transfer") for name in names]
+    rows = [tx(f"TRSF KE ORANG {name}", 100_000, "people_transfer") for name in names]
     rows.append(tx("TOKO CONTOH", 20_000_000, "shopping"))
     assert not any("recipient" in h["text"] for h in compute_insights(rows)["highlights"])
 
@@ -110,7 +111,7 @@ def test_recipient_highlight_skips_unnamed_and_small_recipients():
 def test_insights_endpoint_returns_top_transfers(client):
     body = client.post("/api/insights", json={"rows": transfers_statement()}).json()
     assert body["top_transfers"]["out_by_total"][0]["name"] == "Pak Kos Contoh"
-    assert set(body["top_transfers"]) == {"out_by_total", "out_by_count", "in_by_total"}
+    assert set(body["top_transfers"]) == {"out_by_total", "out_by_count", "in_by_total", "by_category"}
 
 
 def test_pdf_has_top_transfers_table(client):

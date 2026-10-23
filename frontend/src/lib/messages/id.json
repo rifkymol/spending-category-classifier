@@ -1,17 +1,13 @@
 {
   "app.title": "Spending Classifier",
-  "app.tagline": "Kelompokkan transaksi rekening ke makanan, transportasi, belanja, tagihan dan transfer.",
+  "app.tagline": "Kelompokkan transaksi rekening ke kebutuhan, keinginan dan transfer: kebutuhan harian, tagihan, sewa, makan di luar, tabungan dan lainnya.",
+
   "prefs.language": "Bahasa",
   "prefs.theme": "Tema",
+
   "theme.system": "Sistem",
   "theme.light": "Terang",
   "theme.dark": "Gelap",
-
-  "cat.food": "Makanan",
-  "cat.transport": "Transportasi",
-  "cat.shopping": "Belanja",
-  "cat.bills": "Tagihan",
-  "cat.transfer": "Transfer",
 
   "upload.heading": "Unggah laporan rekening",
   "upload.sub": "PDF e-statement BCA atau file CSV.",
@@ -35,7 +31,7 @@
   "results.transactions": "Transaksi",
   "results.inFile": " di {file}",
   "results.toReview": "Perlu ditinjau",
-  "results.saved": "Tersisa",
+  "results.saved": "Ditabung",
   "results.moneyIn": "Uang masuk ({count}, bukan pengeluaran)",
   "results.reportFormat": "Format laporan",
   "results.preparing": "Menyiapkan…",
@@ -45,8 +41,9 @@
   "results.reportError": "Laporan tidak dapat dibuat.",
   "results.whereItWent": "Ke mana uangnya",
   "results.shareByCount": "Porsi transaksi per kategori",
-  "results.whereSub": "Porsi pengeluaran per kategori, uang masuk tidak dihitung.",
+  "results.whereSub": "Porsi pengeluaran per kelompok, uang masuk tidak dihitung. Buka kelompok untuk melihat kategorinya.",
   "results.countSub": "File ini tidak berisi nominal, jadi porsi dihitung dari jumlah transaksi.",
+
   "format.excel": "Excel",
 
   "chart.empty": "Tidak ada data untuk grafik.",
@@ -67,8 +64,9 @@
   "insights.living": "Biaya hidup",
   "insights.livingNote": "Uang keluar, tanpa transfer",
   "insights.transfersOut": "Transfer keluar",
-  "insights.transfersNote": "Tabungan dan pembayaran ke orang lain",
-  "insights.net": "Bersih",
+  "insights.transfersNote": "Tabungan sendiri, keluarga, tunai dan transfer lain",
+  "insights.saved": "Ditabung",
+  "insights.savedBreakdown": "sisa {left} + {moved} dipindahkan ke tabungan",
   "insights.savingsRate": "Tingkat tabungan {rate}",
   "insights.needsMoneyIn": "Butuh baris uang masuk",
   "insights.highlights": "Sorotan",
@@ -85,7 +83,7 @@
   "insights.sortTransfers": "Urutkan transfer teratas",
   "insights.noTransfers": "Tidak ada transfer keluar di laporan ini.",
   "insights.ofTransfers": "{pct} dari transfer",
-  "insights.transfersCount": "Sewa, utang, keluarga, donasi: transfer tetap dihitung sebagai uang keluar.",
+  "insights.transfersCount": "Uang ke tabungan atau dompet digital sendiri juga tercantum; hanya bagian itu yang dihitung sebagai tabungan.",
   "insights.smallSpends": "Pengeluaran kecil",
   "insights.smallText": "{count} pembelian di bawah {threshold} berjumlah {total}{share}.",
   "insights.smallShare": " ({share} dari biaya hidup)",
@@ -100,7 +98,6 @@
   "budget.needs": "Kebutuhan",
   "budget.wants": "Keinginan",
   "budget.savings": "Tabungan",
-  "budget.transfers": "Transfer",
   "budget.income": "Pendapatan bulanan",
   "budget.incomeDetected": "Terdeteksi dari uang masuk periode ini.",
   "budget.incomeEntered": "Diisi oleh Anda. Tidak disimpan; hanya dipakai untuk target ini dan laporan.",
@@ -112,16 +109,18 @@
   "budget.over": "lebih {amount}",
   "budget.short": "kurang {amount} dari target",
   "budget.onTrack": "Sesuai target",
-  "budget.perMonth": "Per bulan. Kebutuhan = tagihan + transportasi, keinginan = makanan + belanja, tabungan = pendapatan dikurangi semua uang keluar.",
-  "budget.transfersNote": "{amount} / bulan berupa transfer tidak masuk kelompok mana pun: dihitung sebagai uang keluar, bukan tabungan.",
+  "budget.perMonth": "Per bulan. Kebutuhan dan keinginan adalah kelompoknya; ditabung = sisa (pendapatan dikurangi semua uang keluar) + uang yang dipindahkan ke tabungan atau dompet digital sendiri.",
   "budget.barAria": "{bucket}: {actual} dari target {target}. {status}",
   "budget.stackedAria": "Batang bertumpuk, porsi dari {basis}: {description}",
   "budget.basisTotalOut": "total keluar (pendapatan tidak ditemukan)",
   "budget.noAmounts": "Tidak ada nominal untuk dibandingkan.",
   "budget.guideline": "pedoman {pct}",
-  "budget.sharesNote": "Porsi dari total keluar. Kebutuhan = tagihan + transportasi, keinginan = makanan + belanja; transfer ditampilkan terpisah.",
+  "budget.sharesNote": "Porsi dari total keluar. Kebutuhan dan keinginan adalah kelompoknya; uang ke tabungan sendiri dan uang keluar lainnya ditampilkan terpisah.",
   "budget.share": "{pct} dari pendapatan",
   "budget.targetMark": "target",
+  "budget.savingsTransfers": "Ke tabungan sendiri",
+  "budget.otherOut": "Uang keluar lainnya",
+  "budget.otherOutNote": "Uang keluar lainnya (keluarga dan teman, tunai, transfer lain): {amount} / bulan. Ini pengeluaran, tetapi bukan kebutuhan maupun keinginan.",
 
   "whatif.cut": "Kurangi {category} {cut}",
   "whatif.now": "{amount} / bln saat ini",
@@ -157,6 +156,7 @@
   "tx.looksRightAria": "Sudah benar: tetap {category} untuk {description}",
   "tx.source.rule": "aturan",
   "tx.source.model": "model",
+  "tx.source.memory": "memori",
 
   "details.close": "Tutup",
   "details.ofSpend": "{pct} dari pengeluaran",
@@ -180,6 +180,10 @@
   "strip.within": "Sesuai target",
   "strip.over": "Melebihi target",
   "strip.short": "Di bawah target",
+  "strip.otherOut": "Uang keluar lainnya",
+  "strip.otherOutHint": "Keluarga dan teman, tunai, transfer lain",
+  "strip.perMonthValue": "{amount} / bulan",
+  "strip.shareOfOut": "{pct} dari uang keluar",
 
   "review.prompt_one": "{count} transaksi perlu ditinjau",
   "review.prompt_other": "{count} transaksi perlu ditinjau",
@@ -188,5 +192,7 @@
   "sections.highlights_one": "{count} sorotan",
   "sections.highlights_other": "{count} sorotan",
   "sections.topMerchant": "merchant teratas {name}",
-  "sections.toReview": "{count} perlu ditinjau"
+  "sections.toReview": "{count} perlu ditinjau",
+
+  "picker.other": "Lainnya"
 }

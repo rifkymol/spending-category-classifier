@@ -11,6 +11,7 @@ import Stat from "./Stat";
 import TransactionsTable, { type TxFilter } from "./TransactionsTable";
 import { DownloadIcon } from "./icons";
 import { REPORT_FORMATS, downloadReport, fetchInsights, type ReportFormat } from "@/lib/api";
+import { inBucket } from "@/lib/categories";
 import { formatIDR } from "@/lib/format";
 import { formatDate, useLocale, type Locale } from "@/lib/i18n";
 import { confirm, relabel, summarize } from "@/lib/summary";
@@ -66,7 +67,12 @@ export default function Results({ rows, fileName, initialInsights, initialInsigh
   const span = useMemo(() => period(rows, locale), [rows, locale]);
   const hasAmounts = summary.total_amount > 0;
   const moneyIn = summary.money_in_total;
-  const savedShare = moneyIn > 0 ? (moneyIn - summary.total_amount) / moneyIn : null;
+  // Saved = left over + moved to your savings (the same definition as the API's cash_flow.saved),
+  // computed here so the header follows every relabel at once.
+  const movedToSavings = summary.by_category
+    .filter((c) => inBucket("savings").includes(c.category))
+    .reduce((sum, c) => sum + c.total_amount, 0);
+  const savedShare = moneyIn > 0 ? (moneyIn - summary.total_amount + movedToSavings) / moneyIn : null;
   const [format, setFormat] = useState<ReportFormat>("csv");
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -1,4 +1,5 @@
-import { CATEGORIES, type Row, type Summary } from "./types";
+import { CATEGORIES } from "./categories";
+import type { Row, Summary } from "./types";
 
 const round = (value: number, digits: number) => {
   const f = 10 ** digits;
@@ -18,7 +19,7 @@ export function summarize(rows: Row[]): Summary {
   const moneyIn = rows.filter(isMoneyIn);
   const spending = rows.filter((r) => !isMoneyIn(r));
   const extra = [...new Set(spending.map((r) => r.predicted))]
-    .filter((c) => !(CATEGORIES as readonly string[]).includes(c))
+    .filter((c) => !CATEGORIES.includes(c))
     .sort();
   const categories = [...CATEGORIES, ...extra];
   const counts = new Map(categories.map((c) => [c, 0]));

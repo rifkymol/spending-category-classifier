@@ -17,16 +17,17 @@ export function csvField(value: string | number | null | undefined): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-export type LabelSource = "user" | "rule" | "model";
+export type LabelSource = "user" | "rule" | "memory" | "model";
 
 /**
  * Where a row's category comes from, for training:
- * "user" if a person changed or confirmed it, "rule" if a keyword rule matched,
- * "model" for an unreviewed model guess (the CLI leaves these out of training).
+ * "user" if a person changed or confirmed it, "rule" if a keyword rule matched, "memory" if the
+ * personal model's recipient memory (built from earlier labels) filled it in, "model" for an
+ * unreviewed model guess (the CLI leaves these out of training).
  */
 export function labelSource(r: Row): LabelSource {
   if (r.reviewed) return "user";
-  return r.source === "rule" ? "rule" : "model";
+  return r.source === "rule" || r.source === "memory" ? r.source : "model";
 }
 
 // A machine format for `classify.py train`: the header and category keys stay English in every UI language.

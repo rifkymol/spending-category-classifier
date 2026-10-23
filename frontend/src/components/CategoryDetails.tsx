@@ -5,6 +5,7 @@ import MoneyWent from "./MoneyWent";
 import Sheet from "./Sheet";
 import { CategoryCell, badge } from "./TransactionsTable";
 import { CloseIcon } from "./icons";
+import { isTransfer as inTransfers } from "@/lib/categories";
 import { colorFor, formatIDR } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { topMerchants } from "@/lib/merchants";
@@ -18,7 +19,7 @@ interface Props {
   summary: Summary;
   /** The file has amounts (false: totals are by count). */
   byAmount: boolean;
-  /** The latest insights (top transfers for the Transfer panel); null when unavailable. */
+  /** The latest insights (top transfers for the transfer categories' panels); null when unavailable. */
   insights: Insights | null;
   returnFocus: HTMLElement | null;
   onClosed: () => void;
@@ -63,13 +64,15 @@ export default function CategoryDetails({
   const spend = inCategory.filter((r) => !isMoneyIn(r));
   const moneyIn = inCategory.filter(isMoneyIn);
   const share = summary.by_category.find((c) => c.category === key)?.share ?? 0;
-  const isTransfer = key === "transfer";
+  const isTransfer = inTransfers(key);
   // "Where the money went". Other categories: merchants from this category's money-out rows,
-  // recomputed live. Transfer is the whole transfer category, so it uses the API's top_transfers
-  // (refreshed after every relabel), falling back to the same client grouping without insights.
+  // recomputed live. A transfer category uses its recipients and sources from the API's
+  // top_transfers.by_category (grouped by counterparty, refreshed after every relabel), falling back
+  // to the client's merchant grouping without insights.
+  const transfers = isTransfer ? insights?.top_transfers.by_category[key] : undefined;
   const merchants = isTransfer ? [] : topMerchants(spend);
-  const recipients = isTransfer ? (insights?.top_transfers.out_by_total ?? topMerchants(spend)) : [];
-  const sources = isTransfer && moneyIn.length > 0 ? (insights?.top_transfers.in_by_total ?? topMerchants(moneyIn)) : [];
+  const recipients = isTransfer && spend.length > 0 ? (transfers?.out_by_total ?? topMerchants(spend)) : [];
+  const sources = isTransfer && moneyIn.length > 0 ? (transfers?.in_by_total ?? topMerchants(moneyIn)) : [];
 
   const drop = (id: number) => setLeaving((prev) => prev.filter((r) => r.id !== id));
 

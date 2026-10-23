@@ -4,13 +4,5 @@ const idr = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR",
 
 export const formatIDR = (value: number) => idr.format(value);
 
-/** Calm category colors, readable on the light and dark canvas and as chart slices. */
-export const CATEGORY_COLORS: Record<string, string> = {
-  food: "#D85A30",
-  transport: "#378ADD",
-  shopping: "#D4537E",
-  bills: "#7F77DD",
-  transfer: "#1D9E75",
-};
-export const OTHER_COLOR = "#888780";
-export const colorFor = (category: string) => CATEGORY_COLORS[category] ?? OTHER_COLOR;
+// Category and group colors come from the categories source (lib/categories.ts).
+export { OTHER_COLOR, colorFor, groupColor } from "./categories";

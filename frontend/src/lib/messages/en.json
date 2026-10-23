@@ -1,17 +1,13 @@
 {
   "app.title": "Spending Classifier",
-  "app.tagline": "Sort bank-statement transactions into food, transport, shopping, bills and transfer.",
+  "app.tagline": "Sort bank-statement transactions into needs, wants and transfers: groceries, bills, rent, eating out, savings and more.",
+
   "prefs.language": "Language",
   "prefs.theme": "Theme",
+
   "theme.system": "System",
   "theme.light": "Light",
   "theme.dark": "Dark",
-
-  "cat.food": "Food",
-  "cat.transport": "Transport",
-  "cat.shopping": "Shopping",
-  "cat.bills": "Bills",
-  "cat.transfer": "Transfer",
 
   "upload.heading": "Upload a statement",
   "upload.sub": "A BCA e-statement PDF or a CSV.",
@@ -45,8 +41,9 @@
   "results.reportError": "Could not create the report.",
   "results.whereItWent": "Where it went",
   "results.shareByCount": "Share of transactions by category",
-  "results.whereSub": "Share of spend by category, money in not counted.",
+  "results.whereSub": "Share of spend by group, money in not counted. Open a group to see its categories.",
   "results.countSub": "No amounts in this file, so shares are by count.",
+
   "format.excel": "Excel",
 
   "chart.empty": "Nothing to chart.",
@@ -67,8 +64,9 @@
   "insights.living": "Living spend",
   "insights.livingNote": "Money out, excluding transfers",
   "insights.transfersOut": "Transfers out",
-  "insights.transfersNote": "Savings and payments to people",
-  "insights.net": "Net",
+  "insights.transfersNote": "Own savings, family, cash and other transfers",
+  "insights.saved": "Saved",
+  "insights.savedBreakdown": "{left} left over + {moved} moved to your savings",
   "insights.savingsRate": "Savings rate {rate}",
   "insights.needsMoneyIn": "Needs money-in rows",
   "insights.highlights": "Highlights",
@@ -85,7 +83,7 @@
   "insights.sortTransfers": "Sort top transfers",
   "insights.noTransfers": "No transfers out in this statement.",
   "insights.ofTransfers": "{pct} of transfers",
-  "insights.transfersCount": "Rent, debt, family, donations: transfers still count as money out.",
+  "insights.transfersCount": "Money to your own savings or e-wallets is listed too; only that part counts as savings.",
   "insights.smallSpends": "Small spends",
   "insights.smallText": "{count} purchases under {threshold} added up to {total}{share}.",
   "insights.smallShare": " ({share} of living spend)",
@@ -100,7 +98,6 @@
   "budget.needs": "Needs",
   "budget.wants": "Wants",
   "budget.savings": "Savings",
-  "budget.transfers": "Transfers",
   "budget.income": "Monthly income",
   "budget.incomeDetected": "Detected from money in this period.",
   "budget.incomeEntered": "Entered by you. Not stored; used only for these targets and the report.",
@@ -112,16 +109,18 @@
   "budget.over": "{amount} over",
   "budget.short": "{amount} short of target",
   "budget.onTrack": "On track",
-  "budget.perMonth": "Per month. Needs = bills + transport, wants = food + shopping, savings = income minus all money out.",
-  "budget.transfersNote": "{amount} / month in transfers is not in any bucket: it is counted as money out, not as savings.",
+  "budget.perMonth": "Per month. Needs and wants are their groups; saved = left over (income minus all money out) + money moved to your own savings or e-wallets.",
   "budget.barAria": "{bucket}: {actual} of a {target} target. {status}",
   "budget.stackedAria": "Stacked bar, share of {basis}: {description}",
   "budget.basisTotalOut": "total out (no income found)",
   "budget.noAmounts": "No amounts to compare.",
   "budget.guideline": "guideline {pct}",
-  "budget.sharesNote": "Shares of total out. Needs = bills + transport, wants = food + shopping; transfers shown separately.",
+  "budget.sharesNote": "Shares of total out. Needs and wants are their groups; money to your own savings and other money out are shown separately.",
   "budget.share": "{pct} of income",
   "budget.targetMark": "target",
+  "budget.savingsTransfers": "To my savings",
+  "budget.otherOut": "Other money out",
+  "budget.otherOutNote": "Other money out (family and friends, cash, other transfers): {amount} / month. It is spending, but in neither needs nor wants.",
 
   "whatif.cut": "Cut {category} by {cut}",
   "whatif.now": "{amount} / mo now",
@@ -157,6 +156,7 @@
   "tx.looksRightAria": "Looks right: keep {category} for {description}",
   "tx.source.rule": "rule",
   "tx.source.model": "model",
+  "tx.source.memory": "memory",
 
   "details.close": "Close",
   "details.ofSpend": "{pct} of spend",
@@ -180,6 +180,10 @@
   "strip.within": "Within target",
   "strip.over": "Over target",
   "strip.short": "Below target",
+  "strip.otherOut": "Other money out",
+  "strip.otherOutHint": "Family and friends, cash, other transfers",
+  "strip.perMonthValue": "{amount} / month",
+  "strip.shareOfOut": "{pct} of money out",
 
   "review.prompt_one": "{count} transaction needs review",
   "review.prompt_other": "{count} transactions need review",
@@ -188,5 +192,7 @@
   "sections.highlights_one": "{count} highlight",
   "sections.highlights_other": "{count} highlights",
   "sections.topMerchant": "top merchant {name}",
-  "sections.toReview": "{count} to review"
+  "sections.toReview": "{count} to review",
+
+  "picker.other": "Other"
 }

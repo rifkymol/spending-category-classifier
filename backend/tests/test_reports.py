@@ -67,7 +67,7 @@ def test_format_idr():
 
 
 def _row(date):
-    return Row(id=0, date=date, description="x", amount=1.0, predicted="food", confidence=1.0,
+    return Row(id=0, date=date, description="x", amount=1.0, predicted="eating_out", confidence=1.0,
                needs_review=False, source="rule")
 
 
@@ -78,11 +78,12 @@ def test_period():
 
 
 def test_pdf_colors_match_frontend():
-    source = (ROOT / "frontend" / "src" / "lib" / "format.ts").read_text(encoding="utf-8")
-    block = source.split("CATEGORY_COLORS", 1)[1].split("};", 1)[0]
-    frontend = dict(re.findall(r'(\w+):\s*"(#[0-9a-fA-F]{6})"', block))
-    assert frontend == CATEGORY_COLORS
-    assert re.search(r'OTHER_COLOR\s*=\s*"(#[0-9a-fA-F]{6})"', source).group(1) == OTHER_COLOR
+    # Both sides come from classifier/categories.py: the reports directly, the frontend through the
+    # exported categories.json (test_categories.py checks that file is up to date).
+    data = json.loads((ROOT / "frontend" / "src" / "lib" / "categories.json").read_text(encoding="utf-8"))
+    assert {c["key"]: c["color"] for c in data["categories"]} == CATEGORY_COLORS
+    assert data["other_color"] == OTHER_COLOR
+    assert list(CATEGORY_COLORS) == CATEGORIES
 
 
 # ---- formats ---------------------------------------------------------------
@@ -191,7 +192,7 @@ def test_reports_with_income_override_have_target_columns(client, rows):
     cells = {r[0]: r[1:] for r in ws.iter_rows(values_only=True) if r and r[0] is not None}
     assert cells["Bucket"][:5] == ("Target (IDR)", "Actual (IDR)", "Difference (IDR)", "Share", "Guideline")
     budget = compute_insights([Row(**r) for r in rows], 10_000_000)["budget_503020"]
-    needs = cells["Needs (bills + transport)"]
+    needs = cells["Needs (essentials)"]
     assert needs[0] == 5_000_000
     assert needs[1] == pytest.approx(budget["actual_amounts"]["needs"])
     assert needs[2] == pytest.approx(5_000_000 - budget["actual_amounts"]["needs"])
@@ -204,7 +205,7 @@ def test_reports_in_indonesian(client, rows):
     text = "\n".join(pdf_pages(pdf.content))
     for phrase in ["Laporan pengeluaran", "Sorotan", "Tampilan 50/30/20", "Target Aktual Selisih",
                    "Pendapatan (per bulan): Rp 10.000.000 (diisi manual)", "Wawasan anggaran, bukan nasihat keuangan.",
-                   "Makanan", "Tanggal Keterangan Nominal Kategori Sumber", "Halaman 1"]:
+                   "Makan di luar", "Tanggal Keterangan Nominal Kategori Sumber", "Halaman 1"]:
         assert phrase in text, phrase
     assert "Spending report" not in text and "Highlights" not in text
 
@@ -212,10 +213,10 @@ def test_reports_in_indonesian(client, rows):
     wb = load_workbook(io.BytesIO(xlsx.content))
     assert wb.sheetnames == ["Ringkasan", "Transaksi", "Wawasan"]
     cells = {r[0]: r[1:] for r in wb["Wawasan"].iter_rows(values_only=True) if r and r[0] is not None}
-    assert "Kebutuhan (tagihan + transportasi)" in cells and "Arus kas" in cells
+    assert "Kebutuhan (pokok)" in cells and "Arus kas" in cells
     assert "Wawasan anggaran, bukan nasihat keuangan." in cells
     summary_labels = [r[0] for r in wb["Ringkasan"].iter_rows(values_only=True)]
-    assert "Makanan" in summary_labels and "Total pengeluaran (IDR)" in summary_labels
+    assert "Makan di luar" in summary_labels and "Total pengeluaran (IDR)" in summary_labels
 
     # The CSV report is a machine format: English headers and category keys in both languages.
     csv_en = client.post("/api/report", json=body, params={"format": "csv"}).text
@@ -321,7 +322,7 @@ def test_report_logs_hold_no_descriptions_or_amounts(client, rows, caplog):
 
     # Formatted messages only: raw args hold the duration float, whose digits can look like amounts.
     text = "\n".join(r.getMessage() for r in caplog.records)
-    assert "POST /api/report 200" in text and "rows=40" in text  # the logger did run
+    assert "POST /api/report 200" in text and f"rows={len(rows)}" in text  # the logger did run
     assert "POST /api/report 422" in text
     secrets = ["HYPERLINK", "45000", rows[2]["description"], rows[3]["description"]]
     secrets += [str(int(r["amount"])) for r in rows[2:6] if r["amount"]]

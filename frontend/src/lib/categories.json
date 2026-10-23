@@ -1,0 +1,121 @@
+{
+  "groups": [
+    {
+      "key": "needs",
+      "color": "#1B7298",
+      "name_en": "Needs",
+      "name_id": "Kebutuhan"
+    },
+    {
+      "key": "wants",
+      "color": "#975B26",
+      "name_en": "Wants",
+      "name_id": "Keinginan"
+    },
+    {
+      "key": "transfers",
+      "color": "#9382C9",
+      "name_en": "Transfers",
+      "name_id": "Transfer"
+    }
+  ],
+  "categories": [
+    {
+      "key": "groceries",
+      "group": "needs",
+      "bucket": "needs",
+      "color": "#2B9656",
+      "name_en": "Groceries",
+      "name_id": "Kebutuhan harian"
+    },
+    {
+      "key": "bills",
+      "group": "needs",
+      "bucket": "needs",
+      "color": "#3A7FD6",
+      "name_en": "Bills and utilities",
+      "name_id": "Tagihan"
+    },
+    {
+      "key": "transport",
+      "group": "needs",
+      "bucket": "needs",
+      "color": "#1593B5",
+      "name_en": "Transport",
+      "name_id": "Transportasi"
+    },
+    {
+      "key": "health",
+      "group": "needs",
+      "bucket": "needs",
+      "color": "#14998A",
+      "name_en": "Health",
+      "name_id": "Kesehatan"
+    },
+    {
+      "key": "housing",
+      "group": "needs",
+      "bucket": "needs",
+      "color": "#3E7274",
+      "name_en": "Rent and housing",
+      "name_id": "Sewa dan hunian"
+    },
+    {
+      "key": "eating_out",
+      "group": "wants",
+      "bucket": "wants",
+      "color": "#D85A30",
+      "name_en": "Eating out",
+      "name_id": "Makan di luar"
+    },
+    {
+      "key": "shopping",
+      "group": "wants",
+      "bucket": "wants",
+      "color": "#D4537E",
+      "name_en": "Shopping",
+      "name_id": "Belanja"
+    },
+    {
+      "key": "entertainment",
+      "group": "wants",
+      "bucket": "wants",
+      "color": "#B07A0E",
+      "name_en": "Entertainment and subscriptions",
+      "name_id": "Hiburan dan langganan"
+    },
+    {
+      "key": "savings_transfer",
+      "group": "transfers",
+      "bucket": "savings",
+      "color": "#8B5CF6",
+      "name_en": "To my savings or e-wallet",
+      "name_id": "Ke tabungan atau dompet digital sendiri"
+    },
+    {
+      "key": "people_transfer",
+      "group": "transfers",
+      "bucket": "other",
+      "color": "#B05CC4",
+      "name_en": "Family and friends",
+      "name_id": "Keluarga dan teman"
+    },
+    {
+      "key": "cash",
+      "group": "transfers",
+      "bucket": "other",
+      "color": "#8F8578",
+      "name_en": "Cash withdrawal",
+      "name_id": "Tarik tunai"
+    },
+    {
+      "key": "other_transfer",
+      "group": "transfers",
+      "bucket": "other",
+      "color": "#6F7D91",
+      "name_en": "Other transfer",
+      "name_id": "Transfer lainnya"
+    }
+  ],
+  "other_color": "#888780"
+}

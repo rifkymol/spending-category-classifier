@@ -44,11 +44,11 @@ def test_targets_from_money_in():
     assert b["actual_amounts"] == {"needs": NEEDS, "wants": WANTS, "savings": 10_000_000 - OUT}
     assert b["difference"] == {"needs": 5_000_000 - NEEDS, "wants": 3_000_000 - WANTS,
                                "savings": 2_000_000 - (10_000_000 - OUT)}
-    assert b["transfers_monthly"] == 2_000_000
+    assert b["other_out_monthly"] == 2_000_000 and b["savings_transfers_monthly"] == 0
 
 
 def test_savings_counts_transfers_as_money_out():
-    """Savings = income - all money out: a transfer lowers savings, it is never counted as savings."""
+    """A transfer to people is spending: it lowers savings (only savings_transfer counts as savings)."""
     rows = statement()
     without_transfer = [r for r in rows if not r["description"].startswith("TRSF")]
     with_t = compute_insights(rows)["budget_503020"]["actual_amounts"]["savings"]
@@ -57,7 +57,7 @@ def test_savings_counts_transfers_as_money_out():
 
 
 def test_targets_are_per_month():
-    rows = [tx("GAJI", 6_000_000, "transfer", "CR", "2026-08-01"),
+    rows = [tx("GAJI", 6_000_000, "other_transfer", "CR", "2026-08-01"),
             tx("TOKO A", 1_000_000, "shopping", date="2026-08-15"),
             tx("PLN", 400_000, "bills", date="2026-09-30")]
     b = compute_insights(rows)["budget_503020"]
@@ -201,8 +201,10 @@ def test_placeholders_match_between_languages():
 def test_normalize_lang_and_categories():
     assert normalize_lang("id") == "id" and normalize_lang("en") == "en"
     assert normalize_lang(None) == normalize_lang("fr") == normalize_lang("ID") == "en"
-    assert [category_name("id", c) for c in ["food", "transport", "shopping", "bills", "transfer"]] == [
-        "Makanan", "Transportasi", "Belanja", "Tagihan", "Transfer"]
+    assert [category_name("id", c) for c in ["groceries", "eating_out", "savings_transfer", "cash"]] == [
+        "Kebutuhan harian", "Makan di luar", "Ke tabungan atau dompet digital sendiri", "Tarik tunai"]
+    assert category_name("en", "entertainment") == "Entertainment and subscriptions"
+    assert category_name("fr", "housing") == "Rent and housing"
     assert category_name("id", "other") == "Other"
 
 

@@ -37,13 +37,13 @@ def tx(description, amount, predicted, direction="DB", date="2026-09-01", **extr
 def statement():
     """One synthetic month: salary in, living spend, a transfer, a fee and small spends."""
     rows = [
-        tx("KR OTOMATIS GAJI PT CONTOH", 10_000_000, "transfer", "CR", "2026-09-01"),
-        tx("QR 00012345 WARUNG MAJU JAYA 998877", 30_000, "food", date="2026-09-02"),
-        tx("QR 00067890 WARUNG MAJU JAYA 112233", 25_000, "food", date="2026-09-03"),
+        tx("KR OTOMATIS GAJI PT CONTOH", 10_000_000, "other_transfer", "CR", "2026-09-01"),
+        tx("QR 00012345 WARUNG MAJU JAYA 998877", 30_000, "eating_out", date="2026-09-02"),
+        tx("QR 00067890 WARUNG MAJU JAYA 112233", 25_000, "eating_out", date="2026-09-03"),
         tx("TRANSAKSI DEBIT TGL: 04/09 TOKO SERBA ADA 5544", 1_500_000, "shopping", date="2026-09-04"),
         tx("PLN PRABAYAR 1234567890", 500_000, "bills", date="2026-09-05"),
         tx("GOJEK RIDE 4411", 20_000, "transport", date="2026-09-06"),
-        tx("TRSF E-BANKING DB 0309/FTSCY/WS95051 BUDI CONTOH", 2_000_000, "transfer", date="2026-09-07"),
+        tx("TRSF E-BANKING DB 0309/FTSCY/WS95051 BUDI CONTOH", 2_000_000, "people_transfer", date="2026-09-07"),
         tx("BIAYA ADM", 15_000, "bills", date="2026-09-30"),
     ]
     for i, r in enumerate(rows):
@@ -61,7 +61,8 @@ def test_cash_flow():
     assert cash["total_out"] == out and cash["out_count"] == 7
     assert cash["transfers_out"] == 2_000_000
     assert cash["living_spend"] == out - 2_000_000
-    assert cash["net"] == 10_000_000 - out
+    assert cash["left_over"] == 10_000_000 - out and cash["moved_to_savings"] == 0
+    assert cash["saved"] == 10_000_000 - out
     assert cash["savings_rate"] == pytest.approx((10_000_000 - out) / 10_000_000, abs=1e-4)
 
 
@@ -89,7 +90,7 @@ def test_merchant_key(description, key):
 
 def test_small_spend_boundary():
     rows = [tx("TOKO A", SMALL_SPEND_THRESHOLD - 1, "shopping"), tx("TOKO B", SMALL_SPEND_THRESHOLD, "shopping"),
-            tx("TEMAN", 10_000, "transfer")]
+            tx("TEMAN", 10_000, "people_transfer")]
     small = compute_insights(rows)["small_spends"]
     assert small["threshold"] == 50_000
     assert small["count"] == 1 and small["total"] == 49_999
@@ -108,11 +109,16 @@ def test_budget_503020_uses_money_in():
     assert b["basis"] == "money_in" and b["basis_amount"] == 10_000_000
     assert b["needs"] == 500_000 + 20_000 + 15_000
     assert b["wants"] == 30_000 + 25_000 + 1_500_000
-    assert b["unclassified_transfers"] == 2_000_000
-    assert b["savings"] == compute_insights(statement())["cash_flow"]["net"]
+    assert b["other_out"] == 2_000_000 and b["savings_transfers"] == 0
+    assert b["savings"] == compute_insights(statement())["cash_flow"]["saved"]  # one definition
     assert b["shares"]["needs"] == pytest.approx(0.0535)
-    assert b["shares"]["unclassified_transfers"] == pytest.approx(0.2)
-    assert b["mapping"] == {"needs": ["bills", "transport"], "wants": ["food", "shopping"], "unclassified": ["transfer"]}
+    assert b["shares"]["other_out"] == pytest.approx(0.2)
+    assert b["mapping"] == {
+        "needs": ["groceries", "bills", "transport", "health", "housing"],
+        "wants": ["eating_out", "shopping", "entertainment"],
+        "savings": ["savings_transfer"],
+        "other": ["people_transfer", "cash", "other_transfer"],
+    }
 
 
 def test_period_and_per_month():
@@ -158,7 +164,7 @@ def test_no_money_in_uses_total_out():
 
 
 def test_no_amounts():
-    rows = [tx("WARUNG MAJU JAYA", None, "food", date=None), tx("TOKO SERBA ADA", None, "shopping", date=None)]
+    rows = [tx("WARUNG MAJU JAYA", None, "eating_out", date=None), tx("TOKO SERBA ADA", None, "shopping", date=None)]
     ins = compute_insights(rows)
     assert ins["cash_flow"]["total_out"] == 0 and ins["cash_flow"]["out_count"] == 2
     assert ins["small_spends"]["count"] == 0 and ins["small_spends"]["share_of_living"] is None
@@ -170,7 +176,7 @@ def test_no_amounts():
 
 
 def test_single_row():
-    ins = compute_insights([tx("WARUNG MAJU JAYA", 30_000, "food")])
+    ins = compute_insights([tx("WARUNG MAJU JAYA", 30_000, "eating_out")])
     assert ins["cash_flow"]["living_spend"] == 30_000
     assert ins["period"]["days"] == 1 and ins["period"]["months_factor"] == 1.0
     assert ins["top_merchants"]["by_total"][0]["merchant"] == "Warung Maju Jaya"
@@ -178,13 +184,14 @@ def test_single_row():
 
 
 def test_all_transfers():
-    rows = [tx("TRSF E-BANKING BUDI CONTOH", 500_000, "transfer"), tx("BI-FAST SITI CONTOH", 250_000, "transfer")]
+    rows = [tx("TRSF E-BANKING BUDI CONTOH", 500_000, "people_transfer"),
+            tx("BI-FAST SITI CONTOH", 250_000, "people_transfer")]
     ins = compute_insights(rows)
     assert ins["cash_flow"]["living_spend"] == 0 and ins["cash_flow"]["transfers_out"] == 750_000
     assert ins["top_merchants"] == {"by_total": [], "by_count": []}
     assert ins["small_spends"]["share_of_living"] is None
-    assert ins["budget_503020"]["shares"]["unclassified_transfers"] == 1.0
-    # The transfers total, then the largest recipient (67% of transfers).
+    assert ins["budget_503020"]["shares"]["other_out"] == 1.0
+    # Other money out, then the largest recipient (67% of transfers).
     assert [h["text"].split(" ")[:3] for h in ins["highlights"]] == [
         ["Rp", "750.000", "went"], ["Your", "largest", "transfer"]]
     assert "Budi Contoh" in ins["highlights"][1]["text"]
@@ -286,8 +293,8 @@ def test_xlsx_insights_sheet(client):
     assert cells["Living spend (IDR)"][0] == 2_090_000
     assert cells["Transfers out (IDR)"][0] == 2_000_000
     # Target, Actual, Difference (per month), Share, Guideline
-    assert cells["Needs (bills + transport)"][:5] == (5_000_000, 535_000, 4_465_000, 0.0535, 0.5)
-    assert cells["Wants (food + shopping)"][1] == 1_555_000
+    assert cells["Needs (essentials)"][:5] == (5_000_000, 535_000, 4_465_000, 0.0535, 0.5)
+    assert cells["Wants (lifestyle)"][1] == 1_555_000
     assert cells["Toko Serba Ada"][:2] == (1, 1_500_000)
     assert cells["Small spends total (IDR)"][0] == 90_000  # every living row under Rp 50.000, the fee too
     assert cells["Fee count"][0] == 1 and cells["Fees total (IDR)"][0] == 15_000

@@ -22,8 +22,8 @@ def test_clean_description():
 @pytest.mark.parametrize(
     "text, expected",
     [
-        ("grab food", "food"),
-        ("qris kopi kenangan jkt", "food"),
+        ("grab food", "eating_out"),
+        ("qris kopi kenangan jkt", "eating_out"),
         ("shopee pay", "shopping"),
         ("pln prepaid", "bills"),
         ("shell kuningan", "transport"),
@@ -103,17 +103,19 @@ def test_bca_words_inside_other_words_are_kept():
 @pytest.mark.parametrize(
     "text, expected",
     [
-        ("TRSF E-BANKING DB 0309 BUDI", "transfer"),
-        ("BI-FAST DB TRANSFER ANI", "transfer"),
-        ("TARIK TUNAI ATM 01", "transfer"),
-        ("SETOR TUNAI", "transfer"),
-        ("KR OTOMATIS GAJI", "transfer"),
-        ("SWITCHING DB BANK LAIN", "transfer"),
+        ("TRSF E-BANKING DB 0309 BUDI", "other_transfer"),
+        ("BI-FAST DB TRANSFER ANI", "other_transfer"),
+        ("TARIK TUNAI ATM 01", "cash"),
+        ("SETOR TUNAI", "other_transfer"),
+        ("KR OTOMATIS GAJI", "other_transfer"),
+        ("SWITCHING DB BANK LAIN", "other_transfer"),
         ("BIAYA ADM", "bills"),
         ("BIAYA ADMINISTRASI", "bills"),
         # Merchant rules come before the transfer group.
-        ("TRANSAKSI DEBIT TGL: 01/09 QR 936000000000000001 KFC SUDIRMAN", "food"),
-        ("TRSF E-BANKING DB 0309 KFC SUDIRMAN", "food"),
+        ("TRANSAKSI DEBIT TGL: 01/09 QR 936000000000000001 KFC SUDIRMAN", "eating_out"),
+        ("TRSF E-BANKING DB 0309 KFC SUDIRMAN", "eating_out"),
+        ("TRSF E-BANKING DB 0309 TOPUP DANA", "savings_transfer"),
+        ("TRSF E-BANKING DB 0209 PAK KOS CONTOH", "housing"),
         ("BI-FAST TRANSFER TOKOPEDIA", "shopping"),
         ("TRSF E-BANKING DB PLN PRABAYAR", "bills"),
     ],
@@ -124,8 +126,12 @@ def test_rule_order_merchant_beats_transfer(text, expected):
 
 def test_transfer_rules_are_checked_last():
     from classifier import RULES
+    from classifier.categories import is_transfer
 
-    assert list(RULES)[-1] == "transfer"
+    order = list(RULES)
+    assert order[-3:] == ["cash", "savings_transfer", "other_transfer"]
+    assert not any(is_transfer(c) for c in order[:-3])
+    assert "people_transfer" not in RULES  # learned from labels and the recipient memory only
 
 
 def test_cli_predict_pdf(tmp_path):
@@ -150,21 +156,81 @@ def test_cli_predict_pdf(tmp_path):
     "text, expected",
     [
         # QR payments carry no transfer words, but e-banking ones do; the merchant must win.
-        ("TRANSAKSI DEBIT TGL: 01/09 QR 936000000000000001 INDOMARET CIPUTAT", "shopping"),
-        ("TRSF E-BANKING DB 0309 ALFAMART", "shopping"),
-        ("TRANSAKSI DEBIT TGL: 02/09 QR 936000000000000002 MIE GACOAN", "food"),
-        ("BI-FAST TRANSFER JANJI JIWA", "food"),
-        ("TRANSAKSI DEBIT TGL: 03/09 QR 936000000000000003 WARTEG BAHARI", "food"),
+        ("TRANSAKSI DEBIT TGL: 01/09 QR 936000000000000001 INDOMARET CIPUTAT", "groceries"),
+        ("TRSF E-BANKING DB 0309 ALFAMART", "groceries"),
+        ("TRANSAKSI DEBIT TGL: 02/09 QR 936000000000000002 MIE GACOAN", "eating_out"),
+        ("BI-FAST TRANSFER JANJI JIWA", "eating_out"),
+        ("TRANSAKSI DEBIT TGL: 03/09 QR 936000000000000003 WARTEG BAHARI", "eating_out"),
         ("E-TOLL TOPUP", "transport"),
         ("SPBU 3412", "transport"),
         ("KRL COMMUTER LINE", "transport"),
         ("APPLE.COM/BILL", "bills"),
-        ("TRSF E-BANKING DB BPJS KESEHATAN", "bills"),
-        ("GOOGLE YOUTUBE PREMIUM", "bills"),
+        ("TRSF E-BANKING DB BPJS KESEHATAN", "health"),
+        ("BPJS KETENAGAKERJAAN", "bills"),
+        ("GOOGLE YOUTUBE PREMIUM", "entertainment"),
+        ("GOOGLE STORAGE", "bills"),
     ],
 )
 def test_public_merchant_rules(text, expected):
     assert apply_rules(clean_description(text)) == expected
+
+
+# ---- Phase 11 categories (fake descriptions) ------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("QRIS SUPERINDO CONTOH", "groceries"),
+        ("HYPERMART PURI 0101", "groceries"),
+        ("LOTTE MART CONTOH", "groceries"),
+        ("RANCH MARKET CONTOH", "groceries"),
+        ("PASAR MINGGU CONTOH", "groceries"),
+        ("GOFOOD SATE CONTOH", "eating_out"),
+        ("CAFE CONTOH SENJA", "eating_out"),
+        ("APOTEK K-24 CONTOH", "health"),
+        ("KIMIA FARMA 0012", "health"),
+        ("RUMAH SAKIT CONTOH", "health"),
+        ("RS CONTOH MEDIKA", "health"),
+        ("KLINIK GIGI CONTOH", "health"),
+        ("HALODOC CONTOH", "health"),
+        ("NETFLIX.COM 1122", "entertainment"),
+        ("SPOTIFY P1 0001", "entertainment"),
+        ("STEAM PURCHASE", "entertainment"),
+        ("CINEMA XXI CONTOH", "entertainment"),
+        ("BIOSKOP CONTOH", "entertainment"),
+        ("PLN PRABAYAR", "bills"),
+        ("INDOSAT OOREDOO", "bills"),
+        ("BAYAR KOST CONTOH", "housing"),
+        ("SEWA APARTEMEN CONTOH", "housing"),
+        ("IPL CONTOH RESIDENCE", "housing"),
+        ("GRAB CAR CONTOH", "transport"),
+        ("TIKTOK SHOP CONTOH", "shopping"),
+        ("WATSONS CONTOH", "shopping"),
+        ("TARIK TUNAI ATM CONTOH", "cash"),
+        ("ATM CONTOH 0012", "cash"),
+        ("TOPUP OVO 0812", "savings_transfer"),
+        ("TOP UP GOPAY CONTOH", "savings_transfer"),
+        ("SHOPEEPAY TOPUP", "savings_transfer"),
+        ("LINKAJA CONTOH", "savings_transfer"),
+        ("BIBIT REKSA DANA", "savings_transfer"),
+        ("BAREKSA CONTOH", "savings_transfer"),
+        ("TRSF E-BANKING DB 0309/FTSCY/WS1 SITI CONTOH", "other_transfer"),
+        ("BI-FAST DB CONTOH", "other_transfer"),
+        # Merchants and top-ups win over the transfer words around them.
+        ("TRSF E-BANKING DB 0309 INDOMARET", "groceries"),
+        ("TRANSJAKARTA TOPUP 7742", "transport"),
+        ("E-TOLL TOPUP", "transport"),
+        ("TOKOPEDIA TOPUP 44", "shopping"),
+    ],
+)
+def test_phase11_rules(text, expected):
+    assert apply_rules(clean_description(text)) == expected
+
+
+@pytest.mark.parametrize("text", ["HEROIK STUDIO", "OVOID TOKO", "KOSMETIK CONTOH", "DANAU CONTOH", "PARSAR"])
+def test_phase11_rules_need_whole_words(text):
+    assert apply_rules(clean_description(text)) is None
 
 
 @pytest.mark.parametrize("text", ["TOLONG BAYAR", "HOTEL SATELIT", "KAIROS STUDIO"])
@@ -176,7 +242,17 @@ def test_synthetic_rule_matches_agree_with_labels():
     df = load_transactions(SAMPLE)
     rules = df["description"].map(lambda d: apply_rules(clean_description(d)))
     hit = rules.notna()
-    assert (rules[hit] == df.loc[hit, "category"]).all()
+    # people_transfer has no rule: those rows match the generic transfer rule and are learned on top.
+    people = (df["category"] == "people_transfer") & (rules == "other_transfer")
+    assert (rules[hit & ~people] == df.loc[hit & ~people, "category"]).all()
+
+
+def test_synthetic_sample_covers_every_category():
+    from classifier.categories import keys
+
+    counts = load_transactions(SAMPLE)["category"].value_counts()
+    assert set(counts.index) == set(keys())
+    assert counts.min() >= 6
 
 
 # ---- Training and evaluating on personal labels (Phase 7) -----------------
@@ -194,7 +270,7 @@ def label_files(tmp_path):
     a = _labels_csv(
         tmp_path / "labels-2026-09-30.csv",
         [
-            ["2026-09-01", "QR WARUNG BU TINI", 15000, "DB", "food", "user"],
+            ["2026-09-01", "QR WARUNG BU TINI", 15000, "DB", "eating_out", "user"],
             ["2026-09-02", "QR TOKO ABC", 20000, "DB", "shopping", "user"],
             ["2026-09-03", "QR UNKNOWN MERCHANT", 30000, "DB", "bills", "model"],
             ["2026-09-04", "GRAB CAR 1", 25000, "DB", "transport", "rule"],
@@ -203,7 +279,7 @@ def label_files(tmp_path):
     b = _labels_csv(
         tmp_path / "labels-2026-10-31.csv",
         [
-            ["2026-10-01", "QR KEDAI SENJA", 18000, "DB", "food", "user"],
+            ["2026-10-01", "QR KEDAI SENJA", 18000, "DB", "eating_out", "user"],
             ["2026-10-02", "QR MYSTERY", 40000, "DB", "bills", "model"],
         ],
     )
@@ -225,7 +301,7 @@ def test_train_with_synthetic_is_default(tmp_path, label_files, capsys):
     model_path = tmp_path / "personal.joblib"
     assert cli.main(["train", *map(str, label_files), "--model", str(model_path)]) == 0
     n_sample = len(pd.read_csv(SAMPLE))
-    assert f"Trained on {4 + n_sample} rows (5 categories)" in capsys.readouterr().out
+    assert f"Trained on {4 + n_sample} rows (12 categories)" in capsys.readouterr().out
 
 
 def test_train_does_not_add_sample_twice(tmp_path, capsys):
@@ -247,8 +323,8 @@ def test_train_only_model_rows_fails_cleanly(tmp_path, capsys):
 
 
 def test_evaluate_multiple_files_with_tiny_class(tmp_path, capsys):
-    rows = [["2026-09-01", f"QR WARUNG {i}", 1000, "DB", "food", "user"] for i in range(4)]
-    rows += [["2026-09-02", f"TRSF E-BANKING DB {i} BUDI", 1000, "DB", "transfer", "rule"] for i in range(4)]
+    rows = [["2026-09-01", f"QR WARUNG {i}", 1000, "DB", "eating_out", "user"] for i in range(4)]
+    rows += [["2026-09-02", f"TRSF E-BANKING DB {i} BUDI", 1000, "DB", "other_transfer", "rule"] for i in range(4)]
     rows += [["2026-09-03", "QR TOKO SATU", 1000, "DB", "shopping", "user"]]  # only one row
     rows += [["2026-09-04", "QR GUESS", 1000, "DB", "bills", "model"]]  # dropped
     a = _labels_csv(tmp_path / "a.csv", rows[:5])
@@ -262,11 +338,11 @@ def test_evaluate_multiple_files_with_tiny_class(tmp_path, capsys):
 
 
 def test_evaluate_min_per_class(tmp_path, capsys):
-    assert cli.main(["evaluate", str(SAMPLE), "--min-per-class", "9"]) == 0
+    assert cli.main(["evaluate", str(SAMPLE), "--min-per-class", "7"]) == 0
     out = capsys.readouterr().out
-    assert "fewer than 9 rows" in out
+    assert "fewer than 7 rows" in out
 
 
 def test_evaluate_needs_two_categories(tmp_path, capsys):
-    rows = [["2026-09-01", f"QR WARUNG {i}", 1000, "DB", "food", "user"] for i in range(3)]
+    rows = [["2026-09-01", f"QR WARUNG {i}", 1000, "DB", "eating_out", "user"] for i in range(3)]
     assert cli.main(["evaluate", str(_labels_csv(tmp_path / "a.csv", rows))]) == 1

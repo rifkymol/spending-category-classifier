@@ -39,15 +39,16 @@ def test_classify_sample(client):
     data = resp.json()
     rows, summary = data["rows"], data["summary"]
 
-    assert len(rows) == 40
+    n = len(SAMPLE.read_text(encoding="utf-8").strip().splitlines()) - 1
+    assert len(rows) == n
     assert {r["predicted"] for r in rows} <= set(CATEGORIES)
-    assert all(r["source"] in ("rule", "model") for r in rows)
+    assert all(r["source"] in ("rule", "model") for r in rows)  # the synthetic model has no memory
     assert all(r["confidence"] == 1.0 for r in rows if r["source"] == "rule")
     assert isinstance(rows[0]["amount"], float)
 
-    assert summary["total_rows"] == 40
+    assert summary["total_rows"] == n
     assert [c["category"] for c in summary["by_category"]] == CATEGORIES
-    assert sum(c["count"] for c in summary["by_category"]) == 40
+    assert sum(c["count"] for c in summary["by_category"]) == n
     assert summary["total_amount"] == pytest.approx(sum(abs(r["amount"]) for r in rows))
     assert sum(c["share"] for c in summary["by_category"]) == pytest.approx(1.0, abs=1e-3)
 
@@ -57,7 +58,7 @@ def test_classify_description_only(client):
     assert resp.status_code == 200
     data = resp.json()
     assert all(r["date"] is None and r["amount"] is None for r in data["rows"])
-    assert data["rows"][0]["predicted"] == "food"
+    assert data["rows"][0]["predicted"] == "eating_out"
     assert data["summary"]["total_amount"] == 0
     # No amounts, so share falls back to count.
     assert sum(c["share"] for c in data["summary"]["by_category"]) == pytest.approx(1.0)
@@ -99,9 +100,9 @@ def test_wrong_content_type_is_415(client):
 
 def test_report_reflects_corrections(client):
     rows = post_csv(client, SAMPLE.read_bytes()).json()["rows"]
-    changed = next(r for r in rows if r["predicted"] != "transfer")
+    changed = next(r for r in rows if r["predicted"] != "people_transfer")
     old_category = changed["predicted"]
-    changed["predicted"] = "transfer"
+    changed["predicted"] = "people_transfer"
 
     resp = client.post("/api/report", json={"rows": rows})
     assert resp.status_code == 200
@@ -111,12 +112,12 @@ def test_report_reflects_corrections(client):
     summary_block, table_block = resp.text.split("\n\n", 1)
     summary = {r["category"]: r for r in csv.DictReader(io.StringIO(summary_block))}
     before = {c["category"]: c["count"] for c in post_csv(client, SAMPLE.read_bytes()).json()["summary"]["by_category"]}
-    assert int(summary["transfer"]["count"]) == before["transfer"] + 1
+    assert int(summary["people_transfer"]["count"]) == before["people_transfer"] + 1
     assert int(summary[old_category]["count"]) == before[old_category] - 1
 
     table = list(csv.DictReader(io.StringIO(table_block)))
-    assert len(table) == 40
-    assert table[changed["id"]]["predicted"] == "transfer"
+    assert len(table) == len(rows)
+    assert table[changed["id"]]["predicted"] == "people_transfer"
 
 
 # ---- privacy rules 1 and 2 -------------------------------------------------
@@ -154,6 +155,6 @@ def test_logs_hold_no_descriptions_or_amounts(client, caplog):
 
     # Formatted messages only: raw args hold the duration float, whose digits can look like amounts.
     text = "\n".join(r.getMessage() for r in caplog.records)
-    assert "POST /api/classify 200" in text and "rows=40" in text  # the logger did run
+    assert "POST /api/classify 200" in text and f"rows={len(resp.json()['rows'])}" in text  # the logger did run
     for secret in ["GRAB*FOOD", "KOPI KENANGAN", "BUDI SANTOSO", "45000", "1000000"]:
         assert secret not in text

@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import CATEGORIES, app
-from bca_fixture import EXPECTED, NOT_ROWS, SUMMARY_TOTALS, TEST_PASSWORD, make_bca_pdf, make_plain_pdf
+from bca_fixture import EXPECTED, EXPECTED_CATEGORIES, NOT_ROWS, SUMMARY_TOTALS, TEST_PASSWORD, make_bca_pdf, make_plain_pdf
 from classifier.importers import PdfPasswordRequired, UnsupportedPdf, parse_bca_pdf, statement_frame
 from classifier.importers.bca_pdf import _iso_date
 from test_api import project_files
@@ -42,7 +42,7 @@ def test_period(statement):
 
 def test_directions(statement):
     assert [r.direction for r in statement.rows].count("CR") == 2
-    assert [r.direction for r in statement.rows].count("DB") == 5
+    assert [r.direction for r in statement.rows].count("DB") == 9
 
 
 def test_saldo_awal_header_footer_and_summary_are_not_rows(statement):
@@ -115,21 +115,19 @@ def test_pdf_upload(client, pdf):
     assert [r["direction"] for r in rows] == [e[3] for e in EXPECTED]
     assert all(r["amount"] > 0 for r in rows)
 
-    by_desc = {r["description"]: r["predicted"] for r in rows}
-    assert by_desc[EXPECTED[0][1]] == "food"  # QR payment to KFC
-    assert by_desc[EXPECTED[1][1]] == "transfer"  # TRSF E-BANKING DB
-    assert by_desc[EXPECTED[4][1]] == "shopping"
-    assert by_desc["BIAYA ADM"] == "bills"
-    assert by_desc[EXPECTED[6][1]] == "transfer"  # TARIK TUNAI
+    # QR to KFC, e-banking out, salary in, KR OTOMATIS in, Shopee, BIAYA ADM, Indomaret, an apotek,
+    # Netflix, a DANA top-up and TARIK TUNAI: every row is decided by a rule.
+    assert [r["predicted"] for r in rows] == EXPECTED_CATEGORIES
+    assert all(r["source"] == "rule" for r in rows)
 
 
 def test_pdf_money_in_is_not_spend(client, pdf):
     summary = client.post("/api/classify", content=pdf, headers=PDF_HEADERS).json()["summary"]
-    assert summary["total_rows"] == 7
+    assert summary["total_rows"] == 11
     assert summary["money_in_count"] == 2
     assert summary["money_in_total"] == pytest.approx(SUMMARY_TOTALS["mutasi_cr_total"])
     assert summary["total_amount"] == pytest.approx(SUMMARY_TOTALS["mutasi_db_total"])
-    assert sum(c["count"] for c in summary["by_category"]) == 5
+    assert sum(c["count"] for c in summary["by_category"]) == 9
     assert sum(c["total_amount"] for c in summary["by_category"]) == pytest.approx(SUMMARY_TOTALS["mutasi_db_total"])
     assert [c["category"] for c in summary["by_category"]] == CATEGORIES
 
@@ -183,6 +181,6 @@ def test_pdf_logs_hold_no_descriptions_or_amounts(client, pdf, caplog):
     client.post("/api/classify", content=make_plain_pdf("KFC 45,000.00"), headers=PDF_HEADERS)
 
     text = "\n".join(r.getMessage() for r in caplog.records)
-    assert "POST /api/classify 200" in text and "rows=7" in text
-    for secret in ["KFC", "SUDIRMAN", "NAMA CONTOH", "BUDI", "45,000", "45000", "7500000", "925500", "SHOPEE"]:
+    assert "POST /api/classify 200" in text and "rows=11" in text
+    for secret in ["KFC", "SUDIRMAN", "NAMA CONTOH", "BUDI", "45,000", "45000", "7500000", "1457000", "SHOPEE", "INDOMARET", "APOTEK"]:
         assert secret not in text

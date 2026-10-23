@@ -5,9 +5,10 @@ import BarList from "./BarList";
 import SegmentedControl from "./SegmentedControl";
 import Stat from "./Stat";
 import { MAX_INCOME } from "@/lib/api";
-import { CATEGORY_COLORS, OTHER_COLOR, colorFor, formatIDR } from "@/lib/format";
+import { CATEGORIES, colorFor, groupColor, inGroup, isTransfer } from "@/lib/categories";
+import { formatIDR } from "@/lib/format";
 import { useLocale, type LocaleContextValue } from "@/lib/i18n";
-import { CATEGORIES, type Bucket, type Insights, type Merchant } from "@/lib/types";
+import type { Bucket, Insights, Merchant } from "@/lib/types";
 
 interface Props {
   insights: Insights;
@@ -22,10 +23,13 @@ const CUT_MAX = 50;
 const CUT_STEP = 5;
 
 export const BUCKETS = [
-  { key: "needs", label: "budget.needs", color: CATEGORY_COLORS.transport },
-  { key: "wants", label: "budget.wants", color: CATEGORY_COLORS.shopping },
-  { key: "savings", label: "budget.savings", color: CATEGORY_COLORS.transfer },
+  { key: "needs", label: "budget.needs", color: groupColor("needs") },
+  { key: "wants", label: "budget.wants", color: groupColor("wants") },
+  { key: "savings", label: "budget.savings", color: colorFor("savings_transfer") },
 ] as const;
+
+/** "Other money out" (family and friends, cash, other transfers): shown with its amount, in no bucket. */
+export const OTHER_OUT_COLOR = colorFor("other_transfer");
 
 type Budget = Insights["budget_503020"];
 
@@ -214,6 +218,14 @@ function BucketTargets({ budget }: { budget: Budget }) {
             </div>
             <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 text-xs tabular-nums">
               <span className={`font-medium ${status.good ? "text-accent" : "text-warn"}`}>{status.text}</span>
+              {b.key === "savings" && budget.left_over_monthly !== null && (
+                <span className="text-muted">
+                  {t("insights.savedBreakdown", {
+                    left: formatIDR(budget.left_over_monthly),
+                    moved: formatIDR(budget.savings_transfers_monthly),
+                  })}
+                </span>
+              )}
               {income > 0 && (
                 <span className="text-muted">
                   {t("budget.share", { pct: percent(actual / income) })} · {t("budget.guideline", { pct: percent(budget.targets[b.key], 0) })}
@@ -223,15 +235,18 @@ function BucketTargets({ budget }: { budget: Budget }) {
           </div>
         );
       })}
-      <p className="text-xs text-muted">
-        {t("budget.perMonth")}{" "}
-        {budget.transfers_monthly > 0 && t("budget.transfersNote", { amount: formatIDR(budget.transfers_monthly) })}
-      </p>
+      {budget.other_out_monthly > 0 && (
+        <p className="flex items-start gap-2 text-sm text-ink-2">
+          <span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: OTHER_OUT_COLOR }} />
+          <span>{t("budget.otherOutNote", { amount: formatIDR(budget.other_out_monthly) })}</span>
+        </p>
+      )}
+      <p className="text-xs text-muted">{t("budget.perMonth")}</p>
     </div>
   );
 }
 
-/** Without an income: one stacked bar of shares of total out, as before Rupiah targets. */
+/** Without an income: one stacked bar of shares of total out (needs, wants, own savings, other money out). */
 function SharesBar({ budget }: { budget: Budget }) {
   const { t, percent } = useLocale();
   const segments = [
@@ -244,11 +259,19 @@ function SharesBar({ budget }: { budget: Budget }) {
       target: budget.targets[b.key] as number | undefined,
     })),
     {
-      key: "transfers",
-      label: t("budget.transfers"),
-      color: OTHER_COLOR,
-      amount: budget.unclassified_transfers,
-      share: budget.shares.unclassified_transfers,
+      key: "savings_transfers",
+      label: t("budget.savingsTransfers"),
+      color: colorFor("savings_transfer"),
+      amount: budget.savings_transfers,
+      share: budget.shares.savings_transfers,
+      target: undefined,
+    },
+    {
+      key: "other_out",
+      label: t("budget.otherOut"),
+      color: OTHER_OUT_COLOR,
+      amount: budget.other_out,
+      share: budget.shares.other_out,
       target: undefined,
     },
   ];
@@ -342,7 +365,7 @@ function TopTransfers({ transfers }: { transfers: Insights["top_transfers"] }) {
             label: m.name,
             value: by === "total" ? m.total : m.count,
             display: by === "total" ? formatIDR(m.total) : `${m.count}×`,
-            color: CATEGORY_COLORS.transfer,
+            color: groupColor("transfers"),
             sub: [
               by === "total"
                 ? t("insights.merchantSubTotal", { count: m.count, avg: formatIDR(m.avg) })
@@ -361,8 +384,8 @@ function TopTransfers({ transfers }: { transfers: Insights["top_transfers"] }) {
 
 function WhatIf({ perMonth, budget }: { perMonth: Record<string, number>; budget: Budget }) {
   const { t, rich, category } = useLocale();
-  // Transfers are left out: they mix savings and payments to people.
-  const categories = CATEGORIES.filter((c) => c !== "transfer" && (perMonth[c] ?? 0) > 0);
+  // The Transfers group is left out: own savings, family and cash are not spending to cut back on here.
+  const categories = CATEGORIES.filter((c) => !isTransfer(c) && (perMonth[c] ?? 0) > 0);
   const [cuts, setCuts] = useState<Record<string, number>>({});
   const baseId = useId();
 
@@ -372,10 +395,10 @@ function WhatIf({ perMonth, budget }: { perMonth: Record<string, number>; budget
   const monthly = categories.reduce((sum, c) => sum + saving(c), 0);
   const money = (value: number) => <span className="font-semibold text-accent">{formatIDR(value)}</span>;
 
-  // How far the food and shopping cuts move wants toward its Rupiah target.
+  // How far the cuts in the Wants group move wants toward its Rupiah target.
   let wantsLine: string | null = null;
   if (budget.target_amounts && budget.difference) {
-    const after = budget.actual_amounts.wants - saving("food") - saving("shopping");
+    const after = budget.actual_amounts.wants - inGroup("wants").reduce((sum, c) => sum + saving(c), 0);
     const status = bucketStatus("wants", budget.target_amounts.wants - after, t);
     wantsLine = t("whatif.wantsOver", {
       after: formatIDR(after),
@@ -469,11 +492,14 @@ export default function InsightsPanel({ insights, stale, incomeOverride, onIncom
             <Stat label={t("insights.living")} value={formatIDR(cash.living_spend)} note={t("insights.livingNote")} />
             <Stat label={t("insights.transfersOut")} value={formatIDR(cash.transfers_out)} note={t("insights.transfersNote")} />
             <Stat
-              label={t("insights.net")}
-              value={cash.money_in > 0 ? formatIDR(cash.net) : "—"}
+              label={t("insights.saved")}
+              value={cash.saved !== null ? formatIDR(cash.saved) : "—"}
               note={
-                cash.savings_rate !== null
-                  ? t("insights.savingsRate", { rate: percent(cash.savings_rate) })
+                cash.saved !== null && cash.left_over !== null && cash.savings_rate !== null
+                  ? `${t("insights.savingsRate", { rate: percent(cash.savings_rate) })} · ${t("insights.savedBreakdown", {
+                      left: formatIDR(cash.left_over),
+                      moved: formatIDR(cash.moved_to_savings),
+                    })}`
                   : t("insights.needsMoneyIn")
               }
             />

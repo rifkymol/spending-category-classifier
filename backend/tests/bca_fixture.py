@@ -31,13 +31,21 @@ PAGE_2 = [
     ("10/09", [(89, "TRANSAKSI"), (130, "DEBIT"), (194, "TGL: 09/09")], "120,500.00", "DB", "13,084,500.00",
      ["QRIS 936000000000000002", "SHOPEE INDONESIA"]),
     ("15/09", [(89, "BIAYA ADM")], "10,000.00", "DB", "13,074,500.00", []),
-    ("20/09", [(89, "TARIK TUNAI")], "500,000.00", "DB", "12,574,500.00", ["ATM CONTOH 01"]),
+    ("16/09", [(89, "TRANSAKSI"), (130, "DEBIT"), (194, "TGL: 16/09")], "87,500.00", "DB", "12,987,000.00",
+     ["QRIS 936000000000000003", "INDOMARET CONTOH"]),
+    ("17/09", [(89, "TRANSAKSI"), (130, "DEBIT"), (194, "TGL: 17/09")], "58,000.00", "DB", "12,929,000.00",
+     ["QR 936000000000000004", "APOTEK CONTOH SEHAT"]),
+    ("18/09", [(89, "TRANSAKSI"), (130, "DEBIT"), (194, "TGL: 18/09")], "186,000.00", "DB", "12,743,000.00",
+     ["NETFLIX.COM"]),
+    ("19/09", [(89, "TRSF"), (130, "E-BANKING DB"), (194, "1909/FTSCY/WS95061")], "200,000.00", "DB",
+     "12,543,000.00", ["TOPUP DANA CONTOH"]),
+    ("20/09", [(89, "TARIK TUNAI")], "500,000.00", "DB", "12,043,000.00", ["ATM CONTOH 01"]),
 ]
 SUMMARY = [
     ("SALDO AWAL", "5,000,000.00", None),
     ("MUTASI CR", "8,500,000.00", "2"),
-    ("MUTASI DB", "925,500.00", "5"),
-    ("SALDO AKHIR", "12,574,500.00", None),
+    ("MUTASI DB", "1,457,000.00", "9"),
+    ("SALDO AKHIR", "12,043,000.00", None),
 ]
 
 # What parse_bca_pdf should return, in order.
@@ -48,9 +56,17 @@ EXPECTED = [
     ("2026-09-08", "KR OTOMATIS LLG-ANTAR BANK DARI CONTOH", 1000000.0, "CR", 13205000.0),
     ("2026-09-10", "TRANSAKSI DEBIT TGL: 09/09 QRIS 936000000000000002 SHOPEE INDONESIA", 120500.0, "DB", 13084500.0),
     ("2026-09-15", "BIAYA ADM", 10000.0, "DB", 13074500.0),
-    ("2026-09-20", "TARIK TUNAI ATM CONTOH 01", 500000.0, "DB", 12574500.0),
+    ("2026-09-16", "TRANSAKSI DEBIT TGL: 16/09 QRIS 936000000000000003 INDOMARET CONTOH", 87500.0, "DB", 12987000.0),
+    ("2026-09-17", "TRANSAKSI DEBIT TGL: 17/09 QR 936000000000000004 APOTEK CONTOH SEHAT", 58000.0, "DB", 12929000.0),
+    ("2026-09-18", "TRANSAKSI DEBIT TGL: 18/09 NETFLIX.COM", 186000.0, "DB", 12743000.0),
+    ("2026-09-19", "TRSF E-BANKING DB 1909/FTSCY/WS95061 TOPUP DANA CONTOH", 200000.0, "DB", 12543000.0),
+    ("2026-09-20", "TARIK TUNAI ATM CONTOH 01", 500000.0, "DB", 12043000.0),
 ]
-SUMMARY_TOTALS = {"mutasi_cr_total": 8500000.0, "mutasi_cr_count": 2, "mutasi_db_total": 925500.0, "mutasi_db_count": 5}
+# The category each row should get from the rules, in order (the fixture covers most categories).
+EXPECTED_CATEGORIES = ["eating_out", "other_transfer", "other_transfer", "other_transfer", "shopping", "bills",
+                       "groceries", "health", "entertainment", "savings_transfer", "cash"]
+SUMMARY_TOTALS = {"mutasi_cr_total": 8500000.0, "mutasi_cr_count": 2, "mutasi_db_total": 1457000.0,
+                  "mutasi_db_count": 9}
 
 # Text that must never become part of a row.
 NOT_ROWS = ["NAMA CONTOH", "REKENING", "HALAMAN", "PERIODE", "Bersambung", "SALDO AKHIR", "MUTASI DB", "CATATAN"]

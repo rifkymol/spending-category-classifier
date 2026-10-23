@@ -29,15 +29,16 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from app.reports import report_csv, report_pdf, report_xlsx
-from app.schemas import CategoryTotal, ClassifyResponse, Health, Insights, ReportRequest, Row, Summary
+from app.schemas import Categories, CategoryTotal, ClassifyResponse, Health, Insights, ReportRequest, Row, Summary
+from classifier import categories
 from classifier.i18n import normalize_lang, t
-from classifier import CONFIDENCE_THRESHOLD, build_model, classify, clean_description, load_transactions
+from classifier import CONFIDENCE_THRESHOLD, MEMORY_ATTR, build_model, classify, clean_description, load_transactions
 from classifier.insights import compute_insights
 from classifier.importers import PdfPasswordRequired, UnsupportedPdf, parse_bca_pdf, statement_frame
 
 logger = logging.getLogger("app")
 
-CATEGORIES = ["food", "transport", "shopping", "bills", "transfer"]
+CATEGORIES = categories.keys()
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_REPORT_BYTES = 10 * 1024 * 1024
 ACCEPTED_TYPES = {"text/csv", "application/octet-stream", "application/pdf"}
@@ -58,6 +59,7 @@ def load_model():
     df = load_transactions(SAMPLE_CSV)
     df = df[df["category"].notna()]
     model = build_model().fit(df["description"].map(clean_description), df["category"])
+    setattr(model, MEMORY_ATTR, {})  # the shipped model knows no recipients
     return model, "synthetic"
 
 
@@ -163,7 +165,7 @@ def to_rows(result: pd.DataFrame) -> list[Row]:
 
     rows = []
     for i, (idx, rec) in enumerate(result.iterrows()):
-        is_rule = pd.notna(rec["rule_category"])
+        source = rec["source"]
         rows.append(
             Row(
                 id=i,
@@ -172,9 +174,9 @@ def to_rows(result: pd.DataFrame) -> list[Row]:
                 amount=_optional_float(amounts[idx]),
                 direction=directions[idx] if directions[idx] in ("DB", "CR") else None,
                 predicted=str(rec["predicted"]),
-                confidence=1.0 if is_rule else float(rec["model_confidence"]),
+                confidence=float(rec["model_confidence"]) if source == "model" else 1.0,
                 needs_review=bool(rec["needs_review"]),
-                source="rule" if is_rule else "model",
+                source=source,
             )
         )
     return rows
@@ -246,6 +248,12 @@ def read_pdf(raw: bytes, lang: str = "en") -> pd.DataFrame:
 @app.get("/api/health", response_model=Health)
 def health(request: Request) -> Health:
     return Health(status="ok", model=request.app.state.model_kind)
+
+
+@app.get("/api/categories", response_model=Categories)
+def list_categories(lang: str | None = Query(None)) -> Categories:
+    """The categories and groups (classifier/categories.py) with names in `lang`."""
+    return Categories.model_validate(categories.for_lang(lang_param(lang)))
 
 
 @app.post("/api/classify", response_model=ClassifyResponse)

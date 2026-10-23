@@ -37,7 +37,8 @@ from reportlab.lib.enums import TA_RIGHT
 from reportlab.platypus import CondPageBreak, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.schemas import Row, Summary
-from classifier.i18n import category_name, t
+from classifier import categories
+from classifier.i18n import category_name, group_name, t
 from classifier.insights import compute_insights
 
 FIELDS = list(Row.model_fields)
@@ -47,15 +48,9 @@ FOOTER = t("en", "report_footer")
 BUDGET_COL_MM = [50, 26, 26, 30, 22, 26]
 BUCKETS = [("needs", "bucket_needs_long"), ("wants", "bucket_wants_long"), ("savings", "bucket_savings_long")]
 
-# Must match CATEGORY_COLORS and OTHER_COLOR in frontend/src/lib/format.ts (a test checks this).
-CATEGORY_COLORS = {
-    "food": "#D85A30",
-    "transport": "#378ADD",
-    "shopping": "#D4537E",
-    "bills": "#7F77DD",
-    "transfer": "#1D9E75",
-}
-OTHER_COLOR = "#888780"
+# From classifier/categories.py, like the frontend's colors (frontend/src/lib/categories.json).
+CATEGORY_COLORS = {c.key: c.color for c in categories.CATEGORIES}
+OTHER_COLOR = categories.OTHER_COLOR
 
 _INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
@@ -114,6 +109,30 @@ def income_line(budget: dict, lang: str = "en") -> str:
         return t(lang, "income_none")
     source = t(lang, "income_entered" if budget["income_source"] == "override" else "income_detected")
     return t(lang, "income_line", amount=format_idr(budget["income_monthly"]), source=source)
+
+
+def group_totals(summary: Summary) -> list[tuple[str, int, float, float, list]]:
+    """(group key, count, total, share, its CategoryTotal rows) per group, in display order. Keys
+    that are in no group (e.g. an old key in a hand-made model) form a last "other" group."""
+    known = {g.key for g in categories.GROUPS}
+    out = []
+    for key in [g.key for g in categories.GROUPS] + ["other"]:
+        items = [c for c in summary.by_category
+                 if (categories.group_of(c.category) == key) or (key == "other" and categories.group_of(c.category) not in known)]
+        if items or key != "other":
+            out.append((key, sum(c.count for c in items), round(sum(c.total_amount for c in items), 2),
+                        round(sum(c.share for c in items), 4), items))
+    return out
+
+
+def _group_label(key: str, lang: str) -> str:
+    return group_name(lang, key) if key != "other" else category_name(lang, "other")
+
+
+def saved_breakdown(budget: dict, lang: str = "en") -> str:
+    """'Saved per month: Rp X = Rp A left over + Rp B moved to your savings' (needs an income)."""
+    return t(lang, "saved_breakdown", saved=format_idr(budget["actual_amounts"]["savings"]),
+             left_over=format_idr(budget["left_over_monthly"]), moved=format_idr(budget["savings_transfers_monthly"]))
 
 
 def _budget_caption(budget: dict, lang: str) -> str:
@@ -185,8 +204,8 @@ def _insights_sheet(wb: Workbook, insights: dict, lang: str = "en") -> None:
 
     cash = insights["cash_flow"]
     section(t(lang, "cash_flow"))
-    for key in ["money_in", "total_out", "living_spend", "transfers_out", "net"]:
-        add([f"{t(lang, key)} ({cur})", cash[key]], [None, idr])
+    for key in ["money_in", "total_out", "living_spend", "transfers_out", "left_over", "moved_to_savings", "saved"]:
+        add([f"{t(lang, key)} ({cur})", dash(cash[key])], [None, idr])
     add([t(lang, "savings_rate"), dash(cash["savings_rate"])], [None, pct])
 
     budget = insights["budget_503020"]
@@ -199,9 +218,11 @@ def _insights_sheet(wb: Workbook, insights: dict, lang: str = "en") -> None:
     for key, label in BUCKETS:
         add([t(lang, label), dash(targets.get(key)), dash(budget["actual_amounts"][key]), dash(diff.get(key)),
              dash(budget["shares"][key]), budget["targets"][key]], [None, idr, idr, idr, pct, pct])
-    add([t(lang, "bucket_transfers_long"), "-", budget["transfers_monthly"], "-",
-         dash(budget["shares"]["unclassified_transfers"]), "-"], [None, None, idr, None, pct, None])
+    add([t(lang, "bucket_other_long"), "-", budget["other_out_monthly"], "-",
+         dash(budget["shares"]["other_out"]), "-"], [None, None, idr, None, pct, None])
     add([income_line(budget, lang)], [None])
+    if budget["income_monthly"] is not None:
+        add([saved_breakdown(budget, lang)], [None])
     add([_budget_caption(budget, lang)], [None])
     if budget["difference"] is not None:
         add([t(lang, "diff_note")], [None])
@@ -275,7 +296,17 @@ def report_xlsx(rows: list[Row], summary: Summary, insights: dict | None = None,
         ws.cell(row=i, column=3, value=c.total_amount).number_format = "#,##0"
         ws.cell(row=i, column=4, value=c.share).number_format = "0.0%"
     last_row = header_row + len(summary.by_category)
-    for col, width in zip("ABCD", (24, 12, 16, 10)):
+
+    group_row = last_row + 2
+    ws.cell(row=group_row, column=1, value=t(lang, "totals_by_group")).font = bold
+    for col, name in enumerate([t(lang, "col_group")] + headers[1:], start=1):
+        ws.cell(row=group_row + 1, column=col, value=name).font = bold
+    for i, (key, count, total, share, _) in enumerate(group_totals(summary), start=group_row + 2):
+        ws.cell(row=i, column=1, value=_xl(t(lang, "subtotal", group=_group_label(key, lang))))
+        ws.cell(row=i, column=2, value=count)
+        ws.cell(row=i, column=3, value=total).number_format = "#,##0"
+        ws.cell(row=i, column=4, value=share).number_format = "0.0%"
+    for col, width in zip("ABCD", (32, 12, 16, 10)):
         ws.column_dimensions[col].width = width
 
     if summary.by_category:
@@ -410,12 +441,14 @@ def _budget_table(budget: dict, cell, lang: str = "en") -> list:
             Paragraph(escape(difference_text(key, diff.get(key), lang)), right),
             share(budget["shares"][key]), share(budget["targets"][key]),
         ])
-    table.append([Paragraph(escape(t(lang, "bucket_transfers_long")), cell), "-", money(budget["transfers_monthly"]),
-                  "-", share(budget["shares"]["unclassified_transfers"]), "-"])
+    table.append([Paragraph(escape(t(lang, "bucket_other_long")), cell), "-", money(budget["other_out_monthly"]),
+                  "-", share(budget["shares"]["other_out"]), "-"])
     caption = cell.clone("caption", fontSize=7, leading=9, textColor=colors.HexColor("#64748b"))
+    breakdown = [Paragraph(escape(saved_breakdown(budget, lang)), cell)] if budget["income_monthly"] is not None else []
     return [
         Paragraph(escape(income_line(budget, lang)), cell), Spacer(1, 1 * mm),
         _table(table, BUDGET_COL_MM, cell), Spacer(1, 1 * mm),
+        *breakdown,
         Paragraph(escape(_budget_caption(budget, lang)), caption),
     ]
 
@@ -479,12 +512,19 @@ def report_pdf(rows: list[Row], summary: Summary, insights: dict | None = None, 
         heading = t(lang, "share_by_category_amount" if has_amounts else "share_by_category_count")
         story += [KeepTogether([Paragraph(escape(heading), styles["Heading2"]), pie]), Spacer(1, 4 * mm)]
 
-    totals = [[t(lang, "col_category"), t(lang, "col_count"), t(lang, "col_total"), t(lang, "col_share")]] + [
-        [category_name(lang, c.category), str(c.count), format_idr(c.total_amount) if has_amounts else "-",
-         f"{c.share:.1%}"]
-        for c in summary.by_category
-    ]
-    totals_table = _table(totals, [45, 20, 40, 20], cell)
+    totals = [[t(lang, "col_category"), t(lang, "col_count"), t(lang, "col_total"), t(lang, "col_share")]]
+    subtotal_rows = []
+    for key, count, total, share, items in group_totals(summary):
+        subtotal_rows.append(len(totals))
+        totals.append([t(lang, "subtotal", group=_group_label(key, lang)), str(count),
+                       format_idr(total) if has_amounts else "-", f"{share:.1%}"])
+        totals += [["   " + category_name(lang, c.category), str(c.count),
+                    format_idr(c.total_amount) if has_amounts else "-", f"{c.share:.1%}"] for c in items]
+    totals_table = _table(totals, [60, 20, 40, 20], cell)
+    totals_table.setStyle(TableStyle(
+        [("FONTNAME", (0, r), (-1, r), "Helvetica-Bold") for r in subtotal_rows]
+        + [("BACKGROUND", (0, r), (-1, r), colors.HexColor("#f1f5f9")) for r in subtotal_rows]
+    ))
     story += [KeepTogether([Paragraph(escape(t(lang, "totals_by_category")), styles["Heading2"]), totals_table]),
               Spacer(1, 6 * mm)]
     story += _highlights_story(insights if insights is not None else compute_insights(rows, lang=lang),
