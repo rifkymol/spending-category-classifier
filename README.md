@@ -37,7 +37,7 @@ Then open http://127.0.0.1:3000.
 - **Spending insights:** cash flow and savings rate, top merchants, small-spend and fee callouts, a 50/30/20 view and what-if sliders, updated as you correct categories.
 - **50/30/20 in Rupiah:** monthly targets for needs, wants and savings from your income (detected from money in, or typed in and never stored), with "Rp X left" / "Rp X over" per bucket. Money moved to your own savings or e-wallets counts as savings; family, cash and other transfers are shown as "Other money out".
 - **Reports** as CSV, Excel (summary sheet with a chart, plus an Insights sheet) or A4 PDF (with a Highlights section), all built in memory.
-- **Teach it your spending:** export your reviewed rows as labels and train a personal model from the CLI.
+- **Teach it your spending:** turn on "Remember my corrections on this device" and fix a few categories. Your corrections stay in your browser, go with each upload, and the server trains a throwaway model for that request only. The CLI can still train a personal model file.
 - **English and Bahasa Indonesia:** an EN | ID switch for the whole UI, the highlights, error messages and the Excel/PDF reports. It starts in your browser's language.
 - **Light, dark or system theme** (System | Light | Dark switch, no flash on load), with a bundled font (no external fonts or CDNs).
 - **Self-hosted and locked down:** localhost-only ports, read-only non-root containers, no outbound calls.
@@ -140,14 +140,24 @@ Bank statements are sensitive, so privacy is a feature, not an afterthought. Ful
 - **In memory only:** uploads and reports are never written to disk; there is no database.
 - **Logs hold no transaction data:** only method, path, status, duration and row count.
 - **No outbound calls:** no analytics, external fonts or CDNs; Next.js telemetry is off.
-- **No financial data in browser storage:** the browser remembers only two UI preferences, `lang` and `theme`. A check script in CI fails on any other key or storage API.
+- **No financial data in browser storage:** the browser remembers only three UI preferences (`lang`, `theme`, `rememberLabels`) and, only if you turn it on, your own corrections (description, category, direction; no amounts or dates) in one IndexedDB database, `scc-labels`, which "Forget my corrections" deletes. The server trains on them in memory per request and never stores them. A check script in CI fails on any other key, database or storage API.
 - **Localhost only:** ports are published on `127.0.0.1`, so other devices on your network can't reach the app.
 - **Locked-down containers:** read-only filesystem, non-root, all capabilities dropped, RAM-only `/tmp`.
 - **Synthetic shipped model:** your labels and personal models stay local and gitignored.
 
 ## Teach it your spending
 
-The bundled model only knows 81 synthetic rows (at least 6 per category), so merchants without a keyword rule often land in the wrong category. Train a personal model on your own reviewed transactions; it all happens on your machine.
+The bundled model only knows 81 synthetic rows (at least 6 per category), so merchants without a keyword rule often land in the wrong category. Teach it your merchants and recipients in the app:
+
+1. Upload a statement and open **All transactions**. Under **Your corrections**, turn on **Remember my corrections on this device** (it is off by default).
+2. Fix wrong categories, or press **✓** ("Looks right") on a flagged row that is already correct. Each one is saved in this browser only (description, category and direction; no amounts, dates or income).
+3. Done. Your next upload sends the saved corrections along (the results say "Using N of your corrections"). The server trains a throwaway model for that one request: the synthetic sample plus your corrections (weighted higher), an exact match for descriptions you labeled (source `label`) and the "same recipient" memory for transfers (source `memory`). It is dropped with the response; nothing is written or cached.
+
+**Import labels file** loads an exported labels CSV into the browser (for example from another browser, or a file from before the 12 categories: old keys are mapped, and old food/transfer rows come back flagged for review instead of as confirmed labels). **Export labels** saves the current rows as a CSV. **Forget my corrections** deletes them all from the browser. Precedence: corrections sent with the upload > a `MODEL_PATH` model > the synthetic model.
+
+### Advanced: train a personal model file from the CLI
+
+Without the browser feature, or to evaluate your labels, train a model file on your own reviewed transactions; it all happens on your machine.
 
 1. Upload a statement and review it. Change wrong categories, or press **✓** ("Looks right") on a flagged row that is already correct. Then click **Export labels**: your browser saves `labels-YYYY-MM-DD.csv` (`date,description,amount,direction,category,label_source`).
 2. Move the file into `data/labels/` (create it with `mkdir data/labels`).
@@ -198,7 +208,7 @@ On startup the API trains a model in memory on the synthetic `data/sample_transa
 | Endpoint | What it does |
 |---|---|
 | `GET /api/health` | `{"status": "ok", "model": "synthetic" or "custom"}` |
-| `POST /api/classify?threshold=0.6&lang=en` | `lang` (`en` or `id`, default `en`; anything else is English) sets the language of the highlights, disclaimer and error messages here and on the two endpoints below. Body: a BCA e-statement PDF (`application/pdf`) or a CSV (`text/csv`, or `application/octet-stream`, which is treated as CSV unless it starts with `%PDF-`) with a `description` column (`date` and `amount` optional), max 5 MB. Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule`, `model` or `memory`), plus per-category totals. |
+| `POST /api/classify?threshold=0.6&lang=en` | `lang` (`en` or `id`, default `en`; anything else is English) sets the language of the highlights, disclaimer and error messages here and on the two endpoints below. Body: a BCA e-statement PDF (`application/pdf`) or a CSV (`text/csv`, or `application/octet-stream`, which is treated as CSV unless it starts with `%PDF-`) with a `description` column (`date` and `amount` optional), max 5 MB. Or, with the user's remembered corrections, `application/json` `{"file": {"content_type": "text/csv" or "application/pdf", "data_b64": "..."}, "labels": [{"description", "category", "direction", "hint"?}]}`: body max 12 MB, the decoded file max 5 MB, at most 20,000 labels (a known category, a description up to 300 characters, direction `DB`, `CR` or null); a model is trained for that request only and dropped. Returns rows with `predicted`, `confidence`, `needs_review` and `source` (`rule`, `model`, `memory` or `label`), plus per-category totals. |
 | `GET /api/categories?lang=en` | The 12 categories (key, group, bucket, color, name) and the three groups, names in `lang`. |
 | `POST /api/insights?lang=en` | Body: `{"rows": [...], "income_override": 8000000}`, same as `/api/report` (same caps and validation). `income_override` is optional: a monthly income (a finite number from 0 to 10^12; 0 or missing means use money in) for the 50/30/20 Rupiah targets. Returns the insights for those rows: cash flow, top merchants, small spends, fees, the 50/30/20 view, per-month figures and highlights. `/api/classify` includes the same `insights` for the uploaded rows. |
 | `POST /api/report?format=csv&lang=en` | Body: `{"rows": [...], "income_override": 8000000}` (rows from `/api/classify`, with any corrected `predicted`; the income is optional, as above). `format` is `csv` (default), `xlsx` or `pdf`. Excel and PDF follow `lang`; CSV is a machine format and stays English. Capped at 10 MB and 50,000 rows. Validation errors return 422 with field locations only, never the submitted rows. |
@@ -223,7 +233,7 @@ python backend/classify.py predict data/sample_transactions.csv --out data/predi
 .venv\Scripts\python -m pytest backend/tests -q -p no:cacheprovider
 ```
 
-Over 300 tests cover the categories source, the pipeline, label migration, the recipient memory, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, insights and 50/30/20 targets, both languages, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run check:i18n` (English and Indonesian have the same keys and placeholders), `npm run check:storage` (only `lang` and `theme` in browser storage), `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+Over 300 tests cover the categories source, the pipeline, label migration, the recipient memory, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, insights and 50/30/20 targets, both languages, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run check:i18n` (English and Indonesian have the same keys and placeholders), `npm run check:storage` (only `lang`, `theme` and `rememberLabels` in localStorage, and IndexedDB `scc-labels` only from `lib/labelsStore.ts`), `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ### Project structure
 
@@ -232,6 +242,7 @@ Over 300 tests cover the categories source, the pipeline, label migration, the r
 ├── backend/
 │   ├── app/              FastAPI app: main.py (endpoints), reports.py, schemas.py
 │   ├── classifier/       categories.py (the categories), pipeline.py (clean, rules, memory, model),
+│   │                     personalize.py (per-request model from your corrections),
 │   │                     insights.py, transfers.py, i18n.py, bca.py, importers/bca_pdf.py
 │   ├── scripts/          export_categories.py (writes frontend/src/lib/categories.json)
 │   ├── tests/            pytest suite and the synthetic BCA PDF fixture

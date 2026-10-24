@@ -9,13 +9,15 @@ import { useLocale, type Locale } from "@/lib/i18n";
 import type { Insights, Row } from "@/lib/types";
 
 // All data lives in this component's state only: nothing is written to browser storage or the URL.
-// (Browser storage holds only the language and theme choices, see lib/prefs.ts.)
+// (Browser storage holds only the language, theme and "remember my corrections" choices, see
+// lib/prefs.ts, and, only when that is on, the user's own corrections, see lib/labelsStore.ts.)
 export default function Home() {
   const { t } = useLocale();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [fileName, setFileName] = useState("");
   const [insights, setInsights] = useState<Insights | null>(null);
   const [insightsLocale, setInsightsLocale] = useState<Locale>("en");
+  const [labelsUsed, setLabelsUsed] = useState(0);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-14">
@@ -31,7 +33,8 @@ export default function Home() {
       </header>
       {rows === null ? (
         <Upload
-          onResult={(result, name, locale) => {
+          onResult={(result, name, locale, used) => {
+            setLabelsUsed(used);
             setRows(result.rows);
             setInsights(result.insights ?? null);
             setInsightsLocale(locale);
@@ -44,6 +47,7 @@ export default function Home() {
           fileName={fileName}
           initialInsights={insights}
           initialInsightsLocale={insightsLocale}
+          labelsUsed={labelsUsed}
           onChange={setRows}
           onReset={() => {
             setRows(null);

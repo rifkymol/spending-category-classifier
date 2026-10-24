@@ -2,13 +2,17 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from classifier.categories import keys, migrate_key
 
 # Generated from classifier/categories.py, the one list of category keys.
 Category = Literal[tuple(keys())]
 MAX_REPORT_ROWS = 50_000
+MAX_LABELS = 20_000
+MAX_LABEL_CHARS = 300
+# base64 of the 5 MB file cap, with room for padding.
+MAX_FILE_B64_CHARS = (5 * 1024 * 1024 + 2) // 3 * 4 + 4
 MAX_INCOME = 1e12
 
 
@@ -21,7 +25,9 @@ class Row(BaseModel):
     predicted: str
     confidence: float
     needs_review: bool
-    source: Literal["rule", "model", "memory"]  # memory: a personal model's "same recipient" memory
+    # memory: "same recipient, same category" from earlier labels; label: the user's own correction
+    # sent from the browser with the upload (an exact match).
+    source: Literal["rule", "model", "memory", "label"]
 
 
 class CategoryTotal(BaseModel):
@@ -198,6 +204,34 @@ class ReportRequest(BaseModel):
     rows: list[ReportRow] = Field(max_length=MAX_REPORT_ROWS)
     # Monthly income typed in by the user, for the 50/30/20 targets. Never stored.
     income_override: float | None = Field(None, ge=0, le=MAX_INCOME, allow_inf_nan=False)
+
+
+class UploadedFile(BaseModel):
+    """A statement inside the JSON upload body, base64 encoded. Decoded in memory only."""
+
+    model_config = ConfigDict(extra="forbid")
+    content_type: Literal["text/csv", "application/pdf"]
+    data_b64: str  # its size is checked by the endpoint (413, like the raw-body upload)
+
+
+class Label(BaseModel):
+    """One of the user's corrections from the browser. Only these fields are accepted: no amounts,
+    dates or income (data minimisation, CLAUDE.md rule 7). hint: imported from an old labels file
+    whose key changed meaning, so it is a suggestion to review, not a confirmed label."""
+
+    model_config = ConfigDict(extra="forbid")
+    description: str = Field(min_length=1, max_length=MAX_LABEL_CHARS)
+    category: Category
+    direction: Literal["DB", "CR"] | None = None
+    hint: bool = False
+
+
+class ClassifyJsonRequest(BaseModel):
+    """POST /api/classify with Content-Type application/json: the statement plus the user's labels."""
+
+    model_config = ConfigDict(extra="forbid")
+    file: UploadedFile
+    labels: list[Label] = Field(default_factory=list, max_length=MAX_LABELS)
 
 
 class CategoryInfo(BaseModel):

@@ -117,5 +117,16 @@
       "name_id": "Transfer lainnya"
     }
   ],
-  "other_color": "#888780"
+  "other_color": "#888780",
+  "migration": {
+    "food": "eating_out",
+    "transport": "transport",
+    "shopping": "shopping",
+    "bills": "bills",
+    "transfer": "other_transfer"
+  },
+  "changed_meaning": [
+    "food",
+    "transfer"
+  ]
 }

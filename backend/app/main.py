@@ -7,11 +7,15 @@ Privacy (see CLAUDE.md):
 - Logs hold only method, path, status, duration and row counts. Never descriptions,
   amounts or exception messages, which can quote row data.
 - The default model is trained in memory on the synthetic sample. No files are written.
+- Uploads may carry the user's own corrections from the browser (JSON body). They train a
+  throwaway model for that request only (classifier/personalize.py), dropped with the response.
 
 Run from the project root:
     .venv\\Scripts\\python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 """
 
+import base64
+import binascii
 import io
 import logging
 import os
@@ -29,11 +33,23 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from app.reports import report_csv, report_pdf, report_xlsx
-from app.schemas import Categories, CategoryTotal, ClassifyResponse, Health, Insights, ReportRequest, Row, Summary
+from app.schemas import (
+    Categories,
+    CategoryTotal,
+    MAX_FILE_B64_CHARS,
+    ClassifyJsonRequest,
+    ClassifyResponse,
+    Health,
+    Insights,
+    ReportRequest,
+    Row,
+    Summary,
+)
 from classifier import categories
 from classifier.i18n import normalize_lang, t
 from classifier import CONFIDENCE_THRESHOLD, MEMORY_ATTR, build_model, classify, clean_description, load_transactions
 from classifier.insights import compute_insights
+from classifier.personalize import apply_labels, build_request_model
 from classifier.importers import PdfPasswordRequired, UnsupportedPdf, parse_bca_pdf, statement_frame
 
 logger = logging.getLogger("app")
@@ -41,6 +57,9 @@ logger = logging.getLogger("app")
 CATEGORIES = categories.keys()
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_REPORT_BYTES = 10 * 1024 * 1024
+# The JSON upload: the base64 file (at most 5 MB decoded) plus up to 20,000 short labels.
+MAX_JSON_BYTES = 12 * 1024 * 1024
+JSON_TYPE = "application/json"
 ACCEPTED_TYPES = {"text/csv", "application/octet-stream", "application/pdf"}
 SAMPLE_CSV = Path(__file__).resolve().parents[2] / "data" / "sample_transactions.csv"
 ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -51,13 +70,18 @@ REPORT_FORMATS = {
 }
 
 
-def load_model():
+def load_sample() -> pd.DataFrame:
+    """The synthetic training rows (description, category): the base of every model."""
+    df = load_transactions(SAMPLE_CSV)
+    return df.loc[df["category"].notna(), ["description", "category"]].reset_index(drop=True)
+
+
+def load_model(sample: pd.DataFrame | None = None):
     """Return (model, kind). Uses MODEL_PATH if it points to a file, else trains on the synthetic sample."""
     model_path = os.environ.get("MODEL_PATH")
     if model_path and Path(model_path).is_file():
         return joblib.load(model_path), "custom"
-    df = load_transactions(SAMPLE_CSV)
-    df = df[df["category"].notna()]
+    df = load_sample() if sample is None else sample
     model = build_model().fit(df["description"].map(clean_description), df["category"])
     setattr(model, MEMORY_ATTR, {})  # the shipped model knows no recipients
     return model, "synthetic"
@@ -71,7 +95,8 @@ async def lifespan(app: FastAPI):
         handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s: %(message)s"))
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
-    app.state.model, app.state.model_kind = load_model()
+    app.state.sample = load_sample()
+    app.state.model, app.state.model_kind = load_model(app.state.sample)
     logger.info("model ready: %s", app.state.model_kind)
     yield
 
@@ -97,7 +122,8 @@ async def log_requests(request: Request, call_next):
     finally:
         ms = (time.perf_counter() - start) * 1000
         rows = getattr(request.state, "row_count", None)
-        extra = f" rows={rows}" if rows is not None else ""
+        labels = getattr(request.state, "label_count", None)
+        extra = (f" rows={rows}" if rows is not None else "") + (f" labels={labels}" if labels is not None else "")
         logger.info("%s %s %d %.1fms%s", request.method, request.url.path, status, ms, extra)
 
 
@@ -174,7 +200,8 @@ def to_rows(result: pd.DataFrame) -> list[Row]:
                 amount=_optional_float(amounts[idx]),
                 direction=directions[idx] if directions[idx] in ("DB", "CR") else None,
                 predicted=str(rec["predicted"]),
-                confidence=float(rec["model_confidence"]) if source == "model" else 1.0,
+                # Rules, the memory and confirmed labels are certain; a review hint keeps the model's score.
+                confidence=float(rec["model_confidence"]) if source == "model" or rec["needs_review"] else 1.0,
                 needs_review=bool(rec["needs_review"]),
                 source=source,
             )
@@ -262,12 +289,18 @@ async def classify_upload(
     threshold: float = Query(CONFIDENCE_THRESHOLD, ge=0.0, le=1.0),
     lang: str | None = Query(None),
 ) -> ClassifyResponse:
+    """The statement as the raw body (text/csv or application/pdf), or as JSON
+    {file: {content_type, data_b64}, labels: [...]} when the browser sends the user's corrections.
+    With labels, a model is trained for this request only and dropped with the response
+    (precedence: request labels > MODEL_PATH > synthetic)."""
     lang = lang_param(lang)
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
-    if content_type not in ACCEPTED_TYPES:
+    if content_type == JSON_TYPE:
+        raw, content_type, labels = await read_json_upload(request, lang)
+    elif content_type in ACCEPTED_TYPES:
+        raw, labels = await read_body(request, lang=lang), []
+    else:
         raise HTTPException(415, t(lang, "err_content_type"))
-
-    raw = await read_body(request, lang=lang)
     if not raw.strip():
         raise HTTPException(400, t(lang, "err_empty"))
 
@@ -276,7 +309,12 @@ async def classify_upload(
     del raw
 
     try:
-        result = classify(df, request.app.state.model, threshold)
+        if labels:
+            personal = build_request_model(labels, request.app.state.sample, request.app.state.model)
+            result = apply_labels(classify(df, personal.model, threshold), personal)
+            del personal, labels
+        else:
+            result = classify(df, request.app.state.model, threshold)
         rows = to_rows(result)
         summary = summarize(rows)
         insights = compute_insights(rows, lang=lang)
@@ -286,6 +324,30 @@ async def classify_upload(
 
     request.state.row_count = len(rows)
     return ClassifyResponse(rows=rows, summary=summary, insights=insights)
+
+
+async def read_json_upload(request: Request, lang: str = "en") -> tuple[bytes, str, list[dict]]:
+    """The JSON upload: (file bytes, content type, labels as dicts). Size-capped before parsing;
+    validation errors never echo labels or file data; the file is decoded in memory only."""
+    raw = await read_body(request, MAX_JSON_BYTES, "err_what_request", lang)
+    try:
+        body = ClassifyJsonRequest.model_validate_json(raw)
+    except ValidationError as exc:
+        raise RequestValidationError(
+            [{**e, "loc": ("body", *e["loc"])} for e in exc.errors(include_url=False, include_input=False)]
+        ) from None
+    del raw
+    too_big = t(lang, "err_too_large", what=t(lang, "err_what_file"), mb=MAX_UPLOAD_BYTES // (1024 * 1024))
+    if len(body.file.data_b64) > MAX_FILE_B64_CHARS:
+        raise HTTPException(413, too_big)
+    try:
+        data = base64.b64decode(body.file.data_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, t(lang, "err_file_b64")) from None
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, too_big)
+    request.state.label_count = len(body.labels)
+    return data, body.file.content_type, [lab.model_dump() for lab in body.labels]
 
 
 async def read_rows(request: Request, lang: str = "en") -> ReportRequest:

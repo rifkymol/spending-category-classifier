@@ -417,7 +417,7 @@ Twelve categories, three groups. Education folds into bills (or becomes its own 
 - [x] [builder] 11b: rules + synthetic data + shipped synthetic model; migration in the CLI; budget v2 in insights/reports/highlights; tests.
 - [x] [builder] 11c: frontend grouped picker, group-first chart/list, strip v2, details panel, EN/ID; checks.
 - [x] [auditor] Full verification: tests, taxonomy integrity, budget math by hand, no hard-coded category lists left (grep), privacy, i18n, storage. *(2026-10-23: 12/12 pass, 291 tests. Budget v2 by hand is exact (savings 2.45M with savings_transfer counted). Migration excluded 5/12 old food/transfer rows. Recipient memory ANI SAMPEL → savings_transfer (source memory). No names in logs.)*
-- [ ] [PM] Browser walkthrough with synthetic data; masked real-statement check (counts per group only); refresh screenshots; ask before commit. *(Walkthrough done 2026-10-23: groups first (Needs 16.2M / Wants 2.1M / Transfers 7.5M), Needs expands to 5 categories and the donut splits; picker has 12 options in 3 ARIA groups; the strip shows "Other money out". Masked real check with the OLD personal model: 98 rows, 46 flagged (migrated food/transfer), 14 DB transfers → savings_transfer by rule, the 15 CR stay other_transfer; income + targets OK; PDF/XLSX 200.)*
+- [x] [PM] Browser walkthrough with synthetic data; masked real-statement check (counts per group only); refresh screenshots; ask before commit. *(2026-10-23: Phase 11 build committed as 4da7156 (45 files), pushed, PM verified. The Phase 10 CI run (1d57e76) passed.)* *(Walkthrough done 2026-10-23: groups first (Needs 16.2M / Wants 2.1M / Transfers 7.5M), Needs expands to 5 categories and the donut splits; picker has 12 options in 3 ARIA groups; the strip shows "Other money out". Masked real check with the OLD personal model: 98 rows, 46 flagged (migrated food/transfer), 14 DB transfers → savings_transfer by rule, the 15 CR stay other_transfer; income + targets OK; PDF/XLSX 200.)*
   - *Found, to fix before commit:*
     1. *The housing color (indigo) is too close to the Transfers violet; they sit next to each other on the donut.*
     2. *There are two different "savings" figures. Cash-flow net / savings rate (e.g. 950k, 9.5%, used in the "You kept…" highlight) excludes savings_transfer, while the 50/30/20 savings (2.45M) includes it. Unify: "Saved = left over + moved to your savings", with the breakdown shown.*
@@ -426,8 +426,33 @@ Twelve categories, three groups. Education folds into bills (or becomes its own 
     - *One savings definition, "Saved = left over + moved to your savings". By hand: 10M in, 9.05M out, 1.5M savings_transfer → 950k + 1.5M = 2.45M (24.5%), identical in cash_flow, budget and the highlight. Browser (synthetic BCA): header "Saved 85.2%"; Insights "Rp 7.243.000 = Rp 7.043.000 left over + Rp 200.000 moved to your savings"; the strip shows the same breakdown.*
   - *Screenshots refreshed (synthetic model): results.png (group-first view), review.png (now the category details panel; README caption updated by PM), report-pdf.png (12 categories with group subtotals). upload.png is unchanged.*
   - *The API was restored to `MODEL_PATH=models/personal.joblib` (the old 5-category model; its predictions migrate and get flagged for review).*
-- [ ] [You] Re-review September in the app (only the flagged food/transfer rows) → Export labels → `data/labels/`.
-- [ ] [PM→worker] Retrain the personal model; masked metrics.
+### 11.5 Remember corrections in the browser (approved 2026-10-23; pulled forward from roadmap item 1)
+User decision: corrections live in the user's own browser (opt-in) and the server trains a throwaway model per request. Built now, before relabeling. CLAUDE.md rule 7 was widened accordingly.
+- **Frontend `lib/labelsStore.ts`:** the only module that may touch IndexedDB (database `scc-labels`, one store).
+  - Each record holds a normalized key (cleaned description + direction), the description, category, direction and `updatedAt`. No amounts, dates or income (data minimisation).
+  - Saving: a toggle "Remember my corrections on this device" (localStorage `rememberLabels`, off by default). When on, every relabel/confirm is saved.
+  - Removal: "Forget my corrections" deletes the database, after a confirmation.
+  - "Import labels" accepts an exported labels CSV, including old-key files; migrated rows stay flagged for review.
+  - Export keeps working.
+- **Upload with corrections:** `POST /api/classify` also accepts `application/json` `{ "file": {content_type, data_b64}, "labels": [...] }`, read in memory with a cap (e.g. 12 MB body, ≤ 20,000 labels; validated categories; no echo). The raw-body path stays for no-labels uploads.
+- **Server per-request model (in memory, discarded after the response):**
+  - The training data is the synthetic sample plus the user's labels (user labels weighted higher), plus an exact-match shortcut and recipient memory built from the labels.
+  - Precedence: request labels > MODEL_PATH > synthetic.
+  - New source value: "memory"/"label" for exact matches.
+- **Privacy tests:**
+  - no files written during per-request training;
+  - logs never hold descriptions or label text;
+  - validation errors don't echo labels;
+  - `check-storage.mjs` allows only `lang`/`theme`/`rememberLabels` and IndexedDB `scc-labels` only from `labelsStore.ts`.
+- **Docs:** README ("Teach it your spending" becomes in-app), PRIVACY.md (a new row for the opt-in browser corrections), CHANGELOG.
+- **Checklist:**
+  - [x] [builder] implement it. *(320 tests; 2,000 labels → 0.7 s; 20,000-label cap ≈ 7 s.)*
+  - [x] [auditor] verify. *(9/9: storage rule 7 is enforced (localStorage lang/theme/rememberLabels; IndexedDB scc-labels only in labelsStore.ts; records have no amounts/dates); JSON upload with labels → label/memory sources; no caching between requests; 413/422 caps with no echo; 0 names in logs; no files written; MODEL_PATH is still used without labels.)*
+  - [x] [PM] browser walkthrough. *(2026-10-23, real API, synthetic data: Remember on; fixed TOKO CONTOH LAMA → Groceries and ANI SAMPEL → To my savings; IndexedDB records = key/description/category/direction/updatedAt, no amounts; reload + new upload → "Using 2 of your corrections", both remembered, a different recipient stays other_transfer by rule; Forget (confirmed) deleted the DB → 0 saved. The Remember switch stays on after Forget.)*
+  - [x] [You] Approve the extra `hint` flag on imported old food/transfer rows (beyond rule 7's field list; never trains, keeps rows flagged) and approve the commit. *(2026-10-24: approved. CLAUDE.md rule 7 now includes the hint flag. 3 new tests (hint-only keeps the fallback model; hints never enter training or memory; a hinted transfer stays flagged); a deliberate break failed 2 of them. PRIVACY.md updated. 323 tests pass (PM rerun).)*
+
+- [ ] [You] Re-review September in the app (with "Remember my corrections" on; import the old September labels file first so the reviewed rows carry over). No export/move/CLI needed.
+- [ ] [PM→worker] The personal model is no longer needed for the app (corrections train per request). Run masked metrics on the stored-corrections flow via an exported copy.
 - [ ] [You] October statement: upload, review the flagged rows, export labels.
 - [ ] [PM→worker] **Out-of-month check:** train on September, test on October. Report the accuracy, the review share, and how many flagged rows the user had to change; decide the threshold (0.5 vs 0.6); retrain on both months.
 

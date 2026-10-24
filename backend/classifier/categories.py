@@ -149,6 +149,9 @@ def export() -> dict:
         "groups": [asdict(g) for g in GROUPS],
         "categories": [asdict(c) for c in CATEGORIES],
         "other_color": OTHER_COLOR,
+        # For importing old labels files in the browser (frontend lib/labelsStore.ts).
+        "migration": MIGRATION,
+        "changed_meaning": sorted(CHANGED_MEANING),
     }
 
 

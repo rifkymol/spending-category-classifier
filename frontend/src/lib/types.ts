@@ -15,8 +15,9 @@ export interface Row {
   predicted: string;
   confidence: number;
   needs_review: boolean;
-  /** "memory": a personal model's "same recipient, same category" memory from earlier labels. */
-  source: "rule" | "model" | "memory";
+  /** "memory": the "same recipient, same category" memory from earlier labels. "label": the user's own
+   * correction, remembered in this browser and sent with the upload (lib/labelsStore.ts). */
+  source: "rule" | "model" | "memory" | "label";
   /** Client-only: a person changed or confirmed this row's category. */
   reviewed?: boolean;
   /** Client-only: the row needed review when it arrived (kept after review clears needs_review). */

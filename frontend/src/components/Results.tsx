@@ -14,6 +14,7 @@ import { REPORT_FORMATS, downloadReport, fetchInsights, type ReportFormat } from
 import { inBucket } from "@/lib/categories";
 import { formatIDR } from "@/lib/format";
 import { formatDate, useLocale, type Locale } from "@/lib/i18n";
+import { saveLabel } from "@/lib/labelsStore";
 import { confirm, relabel, summarize } from "@/lib/summary";
 import type { Insights, Row } from "@/lib/types";
 
@@ -24,6 +25,8 @@ interface Props {
   initialInsights: Insights | null;
   /** The language those insights were written in. */
   initialInsightsLocale: Locale;
+  /** How many remembered corrections went with the upload (0 when none or switched off). */
+  labelsUsed: number;
   onChange: (rows: Row[]) => void;
   onReset: () => void;
 }
@@ -61,7 +64,15 @@ function period(rows: Row[], locale: Locale): string | null {
   return `${formatDate(first, locale, !sameYear)} – ${formatDate(last, locale, true)}`;
 }
 
-export default function Results({ rows, fileName, initialInsights, initialInsightsLocale, onChange, onReset }: Props) {
+export default function Results({
+  rows,
+  fileName,
+  initialInsights,
+  initialInsightsLocale,
+  labelsUsed,
+  onChange,
+  onReset,
+}: Props) {
   const { locale, t, tc, number, percent } = useLocale();
   const summary = useMemo(() => summarize(rows), [rows]);
   const span = useMemo(() => period(rows, locale), [rows, locale]);
@@ -128,8 +139,15 @@ export default function Results({ rows, fileName, initialInsights, initialInsigh
     }
   }
 
-  const relabelRow = (id: number, category: string) => onChange(relabel(rows, id, category));
-  const confirmRow = (id: number) => onChange(confirm(rows, id));
+  // Every relabel and confirm is also remembered in this browser when the user turned that on
+  // (saveLabel does nothing otherwise). Only rows a person touched are saved.
+  function update(next: Row[], id: number) {
+    onChange(next);
+    const row = next.find((r) => r.id === id);
+    if (row) void saveLabel(row);
+  }
+  const relabelRow = (id: number, category: string) => update(relabel(rows, id, category), id);
+  const confirmRow = (id: number) => update(confirm(rows, id), id);
 
   function openBudget() {
     setInsightsOpen(true);
@@ -174,6 +192,7 @@ export default function Results({ rows, fileName, initialInsights, initialInsigh
           </p>
           <p className="mt-2 truncate text-xs text-muted" title={fileName}>
             {fileName}
+            {labelsUsed > 0 && <span> · {tc("labels.used", labelsUsed)}</span>}
           </p>
           <dl className="mt-5 flex flex-wrap gap-x-8 gap-y-3">
             <Stat label={t("results.transactions")} value={number(summary.total_rows)} />

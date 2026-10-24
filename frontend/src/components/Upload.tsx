@@ -4,11 +4,13 @@ import { useId, useRef, useState } from "react";
 import { LockIcon, UploadIcon } from "./icons";
 import { classify, isPdf, MAX_BYTES } from "@/lib/api";
 import { useLocale, type Locale, type MessageKey } from "@/lib/i18n";
+import { labelsForUpload } from "@/lib/labelsStore";
 import type { ClassifyResponse } from "@/lib/types";
 
 interface Props {
-  /** `locale` is the language the response's insights were written in. */
-  onResult: (result: ClassifyResponse, fileName: string, locale: Locale) => void;
+  /** `locale` is the language the response's insights were written in; `labelsUsed` is how many of
+   * the user's remembered corrections went with the upload. */
+  onResult: (result: ClassifyResponse, fileName: string, locale: Locale, labelsUsed: number) => void;
 }
 
 function validate(file: File): MessageKey | null {
@@ -38,7 +40,9 @@ export default function Upload({ onResult }: Props) {
     setError(null);
     setLoading(true);
     try {
-      onResult(await classify(file, locale), file.name, locale);
+      // Empty unless "Remember my corrections" is on and some are saved.
+      const labels = await labelsForUpload();
+      onResult(await classify(file, locale, labels), file.name, locale, labels.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("upload.errGeneric"));
     } finally {

@@ -21,12 +21,13 @@ export type LabelSource = "user" | "rule" | "memory" | "model";
 
 /**
  * Where a row's category comes from, for training:
- * "user" if a person changed or confirmed it, "rule" if a keyword rule matched, "memory" if the
+ * "user" if a person changed or confirmed it (now or in a remembered correction), "rule" if a keyword rule matched, "memory" if the
  * personal model's recipient memory (built from earlier labels) filled it in, "model" for an
  * unreviewed model guess (the CLI leaves these out of training).
  */
 export function labelSource(r: Row): LabelSource {
-  if (r.reviewed) return "user";
+  // A remembered correction is the user's own label; a review hint (needs_review) is only a guess.
+  if (r.reviewed || (r.source === "label" && !r.needs_review)) return "user";
   return r.source === "rule" || r.source === "memory" ? r.source : "model";
 }
 

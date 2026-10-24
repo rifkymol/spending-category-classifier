@@ -2,9 +2,8 @@
 
 import CategoryPicker, { type PickerGroup } from "./CategoryPicker";
 import SegmentedControl from "./SegmentedControl";
+import YourCorrections from "./YourCorrections";
 import { CheckIcon } from "./icons";
-import { labelsCsv, labelsFileName } from "@/lib/csv";
-import { saveBlob } from "@/lib/download";
 import { formatIDR } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { isFlagged, isMoneyIn, reviewProgress } from "@/lib/summary";
@@ -23,12 +22,6 @@ interface Props extends Actions {
   /** The filter is lifted so the "N need review → Review" prompt can preselect "To review". */
   filter: TxFilter;
   onFilterChange: (filter: TxFilter) => void;
-}
-
-/** Built in the browser and saved locally; the labels never go to the API. The file is a machine
- * format for `classify.py train`, so its header and category keys stay English in every language. */
-function exportLabels(rows: Row[]) {
-  saveBlob(new Blob([labelsCsv(rows)], { type: "text/csv;charset=utf-8" }), labelsFileName());
 }
 
 export const badge = "ml-2 inline-block rounded-full px-1.5 py-px align-[1px] text-[11px] font-medium";
@@ -71,7 +64,7 @@ export function CategoryCell({ row, onRelabel, onConfirm }: { row: Row } & Actio
   );
 }
 
-/** The full table with filters and Export labels; it sits in the collapsible "All transactions" section. */
+/** The full table with filters and "Your corrections"; it sits in the collapsible "All transactions" section. */
 export default function TransactionsTable({ rows, onRelabel, onConfirm, filter, onFilterChange }: Props) {
   const { t, rich, date, percent } = useLocale();
   const progress = reviewProgress(rows);
@@ -93,6 +86,8 @@ export default function TransactionsTable({ rows, onRelabel, onConfirm, filter, 
         <SegmentedControl label={t("tx.show")} options={filters} value={filter} onChange={onFilterChange} />
       </div>
 
+      <YourCorrections rows={rows} />
+
       <div className="mt-5 flex flex-col gap-2 border-y border-line py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
         <div aria-live="polite" className="flex items-center gap-3 text-ink-2">
           {progress.flagged === 0 ? (
@@ -108,18 +103,6 @@ export default function TransactionsTable({ rows, onRelabel, onConfirm, filter, 
               </span>
             </>
           )}
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <p className="text-xs text-muted">
-            {rich("tx.exportNote", { folder: <code className="font-mono">data/labels/</code> })}
-          </p>
-          <button
-            type="button"
-            onClick={() => exportLabels(rows)}
-            className="focus-ring rounded-full border border-line px-3 py-1 text-sm font-medium text-ink transition-colors duration-150 hover:border-line-strong hover:bg-subtle"
-          >
-            {t("tx.export")}
-          </button>
         </div>
       </div>
 
@@ -155,6 +138,9 @@ export default function TransactionsTable({ rows, onRelabel, onConfirm, filter, 
                       {isMoneyIn(r) && <span className={`${badge} bg-accent-soft text-accent`}>{t("tx.badgeIn")}</span>}
                       {r.needs_review && <span className={`${badge} bg-warn-soft text-warn`}>{t("tx.badgeReview")}</span>}
                       {r.reviewed && <span className={`${badge} bg-subtle text-muted`}>{t("tx.badgeReviewed")}</span>}
+                      {r.source === "label" && !r.needs_review && !r.reviewed && (
+                        <span className={`${badge} bg-accent-soft text-accent`}>{t("tx.badgeLabel")}</span>
+                      )}
                       <div className="mt-2 sm:hidden">
                         <CategoryCell row={r} onRelabel={onRelabel} onConfirm={onConfirm} />
                       </div>

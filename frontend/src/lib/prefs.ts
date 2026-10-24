@@ -1,8 +1,10 @@
 /**
- * UI preferences: language and theme. The ONLY things this app keeps in browser storage,
- * under the keys "lang" ("en" | "id") and "theme" ("system" | "light" | "dark").
- * No financial data is ever stored; scripts/check-storage.mjs fails the build check if any
- * other key or any other kind of browser storage shows up in src/.
+ * UI preferences: language, theme and the "Remember my corrections" switch. The ONLY things this
+ * app keeps in browser storage, under the keys "lang" ("en" | "id"), "theme" ("system" | "light" |
+ * "dark") and "rememberLabels" ("on" | "off", off by default). The corrections themselves, when the
+ * user turns that on, live in a browser database that only lib/labelsStore.ts touches.
+ * No amounts, dates or files are ever stored; scripts/check-storage.mjs fails the build check if
+ * any other key or any other kind of browser storage shows up in src/.
  *
  * The <html> element is the source of truth while the page runs: the inline script below sets
  * its `lang` and `data-theme` before first paint, and the setters here update both the element
@@ -70,6 +72,28 @@ export function setTheme(theme: Theme): void {
     localStorage.setItem("theme", theme);
   } catch {
     // Storage blocked: the choice still applies to this page.
+  }
+  notify();
+}
+
+// ---- remember my corrections (opt-in) ---------------------------------------
+
+/** Off unless the user turned it on ("on"). Read live: there is nothing to show before first paint. */
+export function getRememberLabels(): boolean {
+  try {
+    return localStorage.getItem("rememberLabels") === "on";
+  } catch {
+    return false;
+  }
+}
+
+export const getServerRememberLabels = (): boolean => false;
+
+export function setRememberLabels(on: boolean): void {
+  try {
+    localStorage.setItem("rememberLabels", on ? "on" : "off");
+  } catch {
+    // Storage blocked: corrections cannot be remembered, and getRememberLabels stays false.
   }
   notify();
 }

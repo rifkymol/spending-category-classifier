@@ -189,7 +189,8 @@ def test_schema_literal_and_api_list_come_from_categories_py():
 # spell them out any more. "food" was only ever a category key, so it may not appear at all.
 OLD_LIST = re.compile(r"""["']food["'],\s*["']transport["'],\s*["']shopping["'],\s*["']bills["'],\s*["']transfer["']""")
 OLD_FOOD = re.compile(r"""["']food["']""")
-ALLOWED = {"backend/classifier/categories.py"}
+# categories.json is generated from categories.py (checked above); it carries the migration map.
+ALLOWED = {"backend/classifier/categories.py", "frontend/src/lib/categories.json"}
 
 
 def _source_files():
