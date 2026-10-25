@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "check:storage": "node scripts/check-storage.mjs"
+    "check:storage": "node scripts/check-storage.mjs",
+    "check:csp": "node scripts/check-csp.mjs"
   },
   "dependencies": {
     "next": "16.4.2",

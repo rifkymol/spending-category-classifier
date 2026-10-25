@@ -456,9 +456,49 @@ User decision: corrections live in the user's own browser (opt-in) and the serve
 - [ ] [You] October statement: upload, review the flagged rows, export labels.
 - [ ] [PM→worker] **Out-of-month check:** train on September, test on October. Report the accuracy, the review share, and how many flagged rows the user had to change; decide the threshold (0.5 vs 0.6); retrain on both months.
 
+*Phase 11 status (2026-10-25): build, 11.5 and commits are done (4da7156, ebde69a). The user chose to **defer** the September re-review and the October out-of-month check (it stays on the roadmap as "Model check"). Phase 11 is closed for development; roadmap item 1 (in-app retraining) was delivered by 11.5.*
+
+## Phase 12: privacy and security hardening (roadmap item 2; approved 2026-10-25, building)
+Goal: let the browser itself enforce "this page only talks to itself and the local API", stop financial responses from being cached, and keep dependencies patched automatically. No behaviour changes.
+
+**Frontend (Next.js) response headers:**
+- **Content-Security-Policy:**
+  - `default-src 'self'`
+  - scripts: `'self'` plus a per-request **nonce** (via Next middleware) for Next's inline bootstrap scripts and our pre-paint theme script. No `'unsafe-eval'`. `'unsafe-inline'` only if a nonce isn't feasible; the builder must justify it.
+  - `style-src 'self' 'unsafe-inline'` (Tailwind/Recharts inline styles)
+  - `img-src 'self' data: blob:`
+  - `font-src 'self'`
+  - `connect-src 'self'` + the configured API origin (`NEXT_PUBLIC_API_URL`, default `http://127.0.0.1:8000`)
+  - `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`
+- **Plus:** `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Permissions-Policy` (camera, microphone, geolocation, payment, usb, … all `()`), `Cross-Origin-Opener-Policy: same-origin`.
+
+**Backend (FastAPI) response headers:**
+- **All responses:** `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Cross-Origin-Resource-Policy: same-site`.
+- **Caching:** `Cache-Control: no-store` on `/api/classify`, `/api/insights` and `/api/report`, so financial results are never cached by the browser or a proxy. Report downloads still work.
+
+**Dependabot (`.github/dependabot.yml`):**
+- Ecosystems: pip (`/backend`), npm (`/frontend`), docker (`/backend` and `/frontend`), github-actions (`/`).
+- Weekly, grouped minor/patch updates, a small open-PR limit.
+- The pins and lock stay exact; Dependabot proposes updates as PRs that CI tests.
+
+**Tests and checks:**
+- backend pytest: the headers are on every endpoint, and no-store is on the data endpoints;
+- a frontend check script that builds the header config and asserts the CSP directives (no `unsafe-eval`, connect-src limited to self + the API origin);
+- the existing privacy tests stay.
+
+**Verification:** a browser walkthrough with the CSP active and **zero CSP violations in the console** across every flow: upload CSV/PDF, the category panel, edits, insights re-fetch, Remember corrections (IndexedDB), report downloads (blob), the theme pre-paint script, EN/ID. Headers checked with curl.
+
+**Checklist:**
+- [x] [You] Approve. *(2026-10-25)*
+- [ ] [builder] Implement (frontend headers + nonce middleware, backend middleware, dependabot.yml, tests, PRIVACY.md/README/CHANGELOG).
+- [x] [auditor] Verify the headers via curl, the tests, and the CSP strictness. *(2026-10-25: 9/9 pass, 335 tests twice; check-csp fails on a loosened copy (6 problems); live API headers correct; no-store only on classify/insights/report (incl. 422 and preflight); Dependabot as specified; no dependency changes.)*
+- [x] [builder] *(2026-10-25: nonce via Next 16 `proxy.ts` (Node runtime) + 'strict-dynamic', no unsafe-inline/eval in prod; API origin baked at build for Docker (the bug was found and fixed); backend ASGI header middleware; no-store on data endpoints incl. errors; dependabot.yml; check:csp in CI; 335 tests.)*
+- [ ] [PM] Browser walkthrough: zero CSP console errors in all flows; ask before commit. *(Done 2026-10-25 on the real ports 3000/8000. Headers verified with curl on both servers (CSP nonce + strict-dynamic, connect-src self + 127.0.0.1:8000; API nosniff/no-referrer/CSP 'none'/CORP same-site/no-store + CORS OK). Browser: synthetic PDF upload, category panel, relabel + insights re-fetch, IndexedDB corrections → 0 violations, 0 console errors. A deliberate fetch to example.com was blocked by connect-src. Theme/lang pre-paint OK; 11/11 scripts carry the nonce. Waiting on the auditor + the user's commit OK.)*
+
 ## Roadmap (PINNED, not started; only after Phase 11 is done)
+0. **Model check (deferred by the user 2026-10-25):** re-review September in-app with Remember on, then the October out-of-month test + threshold decision.
 In priority order. Each item still needs its own plan and the user's approval.
-1. **In-app "bring your own labels" retraining:** stateless per-request training from a labels file (details in "Later"). Removes the CLI + MODEL_PATH restart.
+1. ~~**In-app "bring your own labels" retraining**~~: **done in Phase 11.5** (2026-10-23/24).
 2. **Privacy/security hardening:** a Content-Security-Policy (self + 127.0.0.1:8000 only), X-Frame-Options, Referrer-Policy, Permissions-Policy; Dependabot for pip/npm/Docker digests.
 3. **Static demo on GitHub Pages:** the frontend with canned synthetic responses, no backend, zero data.
 4. **Frontend tests:** unit tests (summary, merchants, budget, csv) + Playwright e2e (needs a dev-dependency install approval); rebuild the local Docker images; fix the pre-hydration label flash; remove the httpx deprecation warning.

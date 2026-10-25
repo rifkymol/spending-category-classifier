@@ -46,6 +46,7 @@ jobs:
       - run: npm ci
       - run: npm run check:i18n
       - run: npm run check:storage
+      - run: npm run check:csp
       - run: npm run lint
       # next build generates next-env.d.ts (gitignored), which tsc needs for
       # the CSS side-effect import, so type-check after the build.

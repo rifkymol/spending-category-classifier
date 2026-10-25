@@ -9,6 +9,8 @@ Privacy (see CLAUDE.md):
 - The default model is trained in memory on the synthetic sample. No files are written.
 - Uploads may carry the user's own corrections from the browser (JSON body). They train a
   throwaway model for that request only (classifier/personalize.py), dropped with the response.
+- Every response carries security headers, and the data endpoints say Cache-Control: no-store,
+  so results are never cached (SecurityHeaders below).
 
 Run from the project root:
     .venv\\Scripts\\python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
@@ -125,6 +127,44 @@ async def log_requests(request: Request, call_next):
         labels = getattr(request.state, "label_count", None)
         extra = (f" rows={rows}" if rows is not None else "") + (f" labels={labels}" if labels is not None else "")
         logger.info("%s %s %d %.1fms%s", request.method, request.url.path, status, ms, extra)
+
+
+SECURITY_HEADERS = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+    # The API serves only JSON and files, never pages: nothing may load from or frame a response.
+    (b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'"),
+    # Enforced only on no-cors loads (<img>, <script>, …): the frontend's fetch() is CORS mode and
+    # is governed by CORSMiddleware, so this blocks embedding without affecting the app.
+    (b"cross-origin-resource-policy", b"same-site"),
+]
+# Financial results: never kept by the browser cache or a proxy. Error responses included.
+NO_STORE_PATHS = {"/api/classify", "/api/insights", "/api/report"}
+NO_STORE_HEADERS = [(b"cache-control", b"no-store"), (b"pragma", b"no-cache")]
+
+
+class SecurityHeaders:
+    """Adds SECURITY_HEADERS to every response, and no-store to the data endpoints. Pure ASGI and
+    the outermost middleware, so CORS preflights, 4xx errors and streamed bodies get them too."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        extra = SECURITY_HEADERS + (NO_STORE_HEADERS if scope["path"] in NO_STORE_PATHS else [])
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                names = {k.lower() for k, _ in message.get("headers", [])}
+                message["headers"] = [*message.get("headers", []), *(h for h in extra if h[0] not in names)]
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+app.add_middleware(SecurityHeaders)
 
 
 def _validation_errors(errors) -> list[dict]:

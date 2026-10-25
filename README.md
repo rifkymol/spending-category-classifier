@@ -144,6 +144,7 @@ Bank statements are sensitive, so privacy is a feature, not an afterthought. Ful
 - **Localhost only:** ports are published on `127.0.0.1`, so other devices on your network can't reach the app.
 - **Locked-down containers:** read-only filesystem, non-root, all capabilities dropped, RAM-only `/tmp`.
 - **Synthetic shipped model:** your labels and personal models stay local and gitignored.
+- **Security headers:** a strict per-request-nonce Content-Security-Policy lets the page connect only to itself and your API, with no `unsafe-eval` and no framing; both servers send `nosniff` and `no-referrer`, and classify, insights and report responses are `Cache-Control: no-store`. Checked in CI by `npm run check:csp` and backend tests. Dependabot proposes weekly dependency and base-image updates as pull requests.
 
 ## Teach it your spending
 
@@ -233,7 +234,7 @@ python backend/classify.py predict data/sample_transactions.csv --out data/predi
 .venv\Scripts\python -m pytest backend/tests -q -p no:cacheprovider
 ```
 
-Over 300 tests cover the categories source, the pipeline, label migration, the recipient memory, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, insights and 50/30/20 targets, both languages, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run check:i18n` (English and Indonesian have the same keys and placeholders), `npm run check:storage` (only `lang`, `theme` and `rememberLabels` in localStorage, and IndexedDB `scc-labels` only from `lib/labelsStore.ts`), `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+Over 300 tests cover the categories source, the pipeline, label migration, the recipient memory, the BCA importer (against a synthetic `reportlab` PDF), the API, reports, insights and 50/30/20 targets, both languages, and the privacy rules (no files written during an upload, no row data in logs). The frontend is checked with `npm run check:i18n` (English and Indonesian have the same keys and placeholders), `npm run check:storage` (only `lang`, `theme` and `rememberLabels` in localStorage, and IndexedDB `scc-labels` only from `lib/labelsStore.ts`), `npm run check:csp` (the Content-Security-Policy stays strict), `npm run lint`, `npx tsc --noEmit` and `npm run build`. CI runs all of this plus `docker compose build` on every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ### Project structure
 
@@ -266,6 +267,7 @@ Builds are reproducible because everything is pinned exactly.
 - *Base images:* each `FROM` line in `backend/Dockerfile` and `frontend/Dockerfile` pins a digest. To refresh, run `docker pull python:3.13-slim` (or `node:22-alpine`), read the new digest with `docker image inspect --format "{{index .RepoDigests 0}}" python:3.13-slim`, and replace the `@sha256:...` part (in all three `FROM` lines of the frontend file).
 - *Python packages:* `backend/requirements-runtime.txt` pins the direct dependencies and `backend/requirements-runtime.lock` pins the full transitive closure (used as a pip constraints file). To refresh, install the new versions in a local venv, run the tests, update the `==` pins, and regenerate the lock by walking `importlib.metadata` requirements from the direct dependencies (Linux / Python 3.13 markers, no extras), as its header describes.
 - *npm packages:* pinned in `frontend/package.json` and `frontend/package-lock.json`.
+- *Dependabot* ([`.github/dependabot.yml`](.github/dependabot.yml)) checks pip, npm, the Docker base images and GitHub Actions weekly and opens pull requests (minor and patch updates grouped per ecosystem, at most 5 open each), which CI tests before you merge.
 
 Then rebuild with `docker compose build`.
 
@@ -273,7 +275,7 @@ Then rebuild with `docker compose build`.
 
 - The first build downloads the `python:3.13-slim` and `node:22-alpine` base images and the packages, so it takes a few minutes. The web container starts only after the API reports healthy.
 - Stop with **Ctrl+C** or `docker compose down` (no data is lost, because none is stored).
-- The browser calls the API directly, so its address is baked into the web bundle through the `NEXT_PUBLIC_API_URL` build arg (default `http://127.0.0.1:8000`, under `web.build.args`). If you change it, or open the UI on an address other than `http://127.0.0.1:3000` or `http://localhost:3000`, add that origin to `ALLOWED_ORIGINS` in `backend/app/main.py` and rebuild.
+- The browser calls the API directly, so its address is baked into the web bundle through the `NEXT_PUBLIC_API_URL` build arg (default `http://127.0.0.1:8000`, under `web.build.args`). If you change it, or open the UI on an address other than `http://127.0.0.1:3000` or `http://localhost:3000`, add that origin to `ALLOWED_ORIGINS` in `backend/app/main.py` and rebuild. The web image's Content-Security-Policy allows connections only to the API origin it was built with, so rebuild the web image after changing the URL.
 
 ## Roadmap
 
