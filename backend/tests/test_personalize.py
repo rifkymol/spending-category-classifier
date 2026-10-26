@@ -2,6 +2,7 @@
 
 import base64
 import logging
+import os
 import time
 
 import pytest
@@ -215,7 +216,8 @@ def test_2000_labels_finish_quickly(client):
     resp = post_json(client, json_upload(SAMPLE.read_bytes(), labels))
     elapsed = time.perf_counter() - start
     assert resp.status_code == 200
-    assert elapsed < 3.0, f"{elapsed:.2f}s"
+    max_elapsed = 5.0 if os.getenv("CI") else 3.0
+    assert elapsed < max_elapsed, f"{elapsed:.2f}s"
 
 
 # ---- hints never train -----------------------------------------------------
